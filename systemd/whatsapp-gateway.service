@@ -1,0 +1,44 @@
+# ==========================================================
+# systemd unit untuk WhatsApp Gateway (menjalankan backend langsung dengan Node)
+# Gunakan INI sebagai alternatif PM2 (jangan jalankan keduanya bersamaan).
+#
+# Pasang:
+#   sudo cp systemd/whatsapp-gateway.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now whatsapp-gateway
+#   sudo systemctl status whatsapp-gateway
+# ==========================================================
+[Unit]
+Description=WhatsApp Gateway Enterprise (Node.js backend + Baileys + worker)
+Documentation=https://gateway.example.com/api/docs
+After=network.target mysql.service mariadb.service redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=wagateway
+Group=wagateway
+WorkingDirectory=/var/www/whatsapp-gateway/backend
+Environment=NODE_ENV=production
+# Path node 22 (sesuaikan bila pakai nvm; gunakan output `which node`)
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=5
+# Beri waktu shutdown anggun (graceful) untuk menutup sesi WA
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Logging ke journald
+StandardOutput=append:/var/www/whatsapp-gateway/logs/systemd-out.log
+StandardError=append:/var/www/whatsapp-gateway/logs/systemd-error.log
+SyslogIdentifier=wa-gateway
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

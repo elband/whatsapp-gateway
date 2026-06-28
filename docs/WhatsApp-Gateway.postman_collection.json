@@ -1,0 +1,384 @@
+{
+  "info": {
+    "name": "WhatsApp Gateway Enterprise",
+    "description": "Koleksi REST API WhatsApp Gateway. Set variabel `baseUrl`, lalu jalankan Auth > Login (accessToken & refreshToken otomatis tersimpan). Untuk integrasi aplikasi, isi `apiKey` dan gunakan request di folder Messages (API Key).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000/api/v1" },
+    { "key": "accessToken", "value": "" },
+    { "key": "refreshToken", "value": "" },
+    { "key": "apiKey", "value": "wag_xxxx.yyyy" },
+    { "key": "deviceId", "value": "1" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d = pm.response.json().data || {};",
+                  "if (d.accessToken) pm.collectionVariables.set('accessToken', d.accessToken);",
+                  "if (d.refreshToken) pm.collectionVariables.set('refreshToken', d.refreshToken);",
+                  "pm.test('login ok', () => pm.response.code === 200);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"Admin@12345\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/refresh",
+            "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }
+          }
+        },
+        { "name": "Me", "request": { "method": "GET", "url": "{{baseUrl}}/auth/me" } },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/change-password",
+            "body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"Admin@12345\",\n  \"newPassword\": \"NewPass@123\"\n}" }
+          }
+        },
+        { "name": "Logout", "request": { "method": "POST", "url": "{{baseUrl}}/auth/logout" } }
+      ]
+    },
+    {
+      "name": "Devices",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/devices" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/devices",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"CS-1\",\n  \"autoReconnect\": true\n}" }
+          }
+        },
+        { "name": "Get QR", "request": { "method": "GET", "url": "{{baseUrl}}/devices/{{deviceId}}/qr" } },
+        { "name": "Connect", "request": { "method": "POST", "url": "{{baseUrl}}/devices/{{deviceId}}/connect" } },
+        { "name": "Restart", "request": { "method": "POST", "url": "{{baseUrl}}/devices/{{deviceId}}/restart" } },
+        { "name": "Logout Device", "request": { "method": "POST", "url": "{{baseUrl}}/devices/{{deviceId}}/logout" } },
+        { "name": "Delete", "request": { "method": "DELETE", "url": "{{baseUrl}}/devices/{{deviceId}}" } }
+      ]
+    },
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "Send Text (JWT)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/messages/send",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"to\": \"08123456789\",\n  \"body\": \"Halo dari WhatsApp Gateway\"\n}" }
+          }
+        },
+        {
+          "name": "Send Text (API Key)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{apiKey}}" }
+            ],
+            "url": "{{baseUrl}}/messages/send",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"to\": \"08123456789\",\n  \"body\": \"Halo via API Key\"\n}" }
+          }
+        },
+        {
+          "name": "Send Media (multipart)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/messages/send-media",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [] },
+                { "key": "to", "value": "08123456789", "type": "text" },
+                { "key": "type", "value": "DOCUMENT", "type": "text" },
+                { "key": "caption", "value": "Invoice Anda", "type": "text" },
+                { "key": "deviceId", "value": "{{deviceId}}", "type": "text" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Send Location",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/messages/send-location",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"to\": \"08123456789\",\n  \"latitude\": -6.2,\n  \"longitude\": 106.8,\n  \"name\": \"Kantor Pusat\"\n}" }
+          }
+        },
+        {
+          "name": "Send Contact",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/messages/send-contact",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"to\": \"08123456789\",\n  \"contactName\": \"Budi\",\n  \"contactPhone\": \"08129999999\"\n}" }
+          }
+        },
+        {
+          "name": "Send Buttons",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/messages/send-buttons",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"to\": \"08123456789\",\n  \"body\": \"Pilih menu:\",\n  \"footer\": \"WA Gateway\",\n  \"buttons\": [ { \"id\": \"info\", \"text\": \"Info\" }, { \"id\": \"cs\", \"text\": \"Hubungi CS\" } ]\n}" }
+          }
+        },
+        {
+          "name": "Send List",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/messages/send-list",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"to\": \"08123456789\",\n  \"body\": \"Daftar layanan kami:\",\n  \"buttonText\": \"Lihat\",\n  \"sections\": [ { \"title\": \"Layanan\", \"rows\": [ { \"id\": \"a\", \"title\": \"Cek Tagihan\", \"description\": \"Lihat tagihan terakhir\" }, { \"id\": \"b\", \"title\": \"Buat Tiket\" } ] } ]\n}" }
+          }
+        },
+        {
+          "name": "Check Numbers",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/messages/check",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"numbers\": [ \"08123456789\", \"08529999999\" ]\n}" }
+          }
+        },
+        { "name": "List Messages", "request": { "method": "GET", "url": "{{baseUrl}}/messages?page=1&limit=20" } },
+        { "name": "Resend", "request": { "method": "POST", "url": "{{baseUrl}}/messages/1/resend" } }
+      ]
+    },
+    {
+      "name": "Broadcast",
+      "item": [
+        {
+          "name": "Create Broadcast",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/broadcasts",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Promo Juni\",\n  \"deviceId\": {{deviceId}},\n  \"messageType\": \"TEXT\",\n  \"body\": \"Halo {{nama}}, ada promo untukmu!\",\n  \"minDelayMs\": 3000,\n  \"maxDelayMs\": 8000,\n  \"recipients\": [\n    { \"phone\": \"08123456789\", \"name\": \"Budi\" },\n    { \"phone\": \"08129999999\", \"name\": \"Sinta\" }\n  ]\n}" }
+          }
+        },
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/broadcasts" } },
+        { "name": "Detail", "request": { "method": "GET", "url": "{{baseUrl}}/broadcasts/1" } },
+        { "name": "Items", "request": { "method": "GET", "url": "{{baseUrl}}/broadcasts/1/items" } },
+        { "name": "Pause", "request": { "method": "POST", "url": "{{baseUrl}}/broadcasts/1/pause" } },
+        { "name": "Resume", "request": { "method": "POST", "url": "{{baseUrl}}/broadcasts/1/resume" } },
+        { "name": "Cancel", "request": { "method": "POST", "url": "{{baseUrl}}/broadcasts/1/cancel" } },
+        { "name": "Retry Failed", "request": { "method": "POST", "url": "{{baseUrl}}/broadcasts/1/retry" } }
+      ]
+    },
+    {
+      "name": "Contacts",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/contacts" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/contacts",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Budi\",\n  \"phone\": \"08123456789\",\n  \"email\": \"budi@example.com\",\n  \"tags\": [\"vip\"]\n}" }
+          }
+        },
+        {
+          "name": "Import (Excel/CSV)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/contacts/import",
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": [] }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Templates",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/templates" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/templates",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Tiket Dibuat\",\n  \"type\": \"TEXT\",\n  \"body\": \"Halo {{nama}}, tiket {{nomor_tiket}} telah dibuat.\"\n}" }
+          }
+        },
+        {
+          "name": "Preview",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/templates/1/preview",
+            "body": { "mode": "raw", "raw": "{\n  \"variables\": { \"nama\": \"Budi\", \"nomor_tiket\": \"TK-001\" }\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Autoresponder",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/autoresponders" } },
+        {
+          "name": "Create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/autoresponders",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Salam\",\n  \"deviceId\": null,\n  \"keyword\": \"halo\",\n  \"matchType\": \"CONTAINS\",\n  \"response\": \"Halo {{nama}}, ada yang bisa kami bantu?\",\n  \"priority\": 1\n}" }
+          }
+        },
+        {
+          "name": "Update",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/autoresponders/1",
+            "body": { "mode": "raw", "raw": "{\n  \"isActive\": false\n}" }
+          }
+        },
+        { "name": "Delete", "request": { "method": "DELETE", "url": "{{baseUrl}}/autoresponders/1" } }
+      ]
+    },
+    {
+      "name": "OTP",
+      "item": [
+        {
+          "name": "Send OTP",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{apiKey}}" }
+            ],
+            "url": "{{baseUrl}}/otp/send",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"to\": \"08123456789\",\n  \"length\": 6,\n  \"expiresMinutes\": 5\n}" }
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-API-Key", "value": "{{apiKey}}" }
+            ],
+            "url": "{{baseUrl}}/otp/verify",
+            "body": { "mode": "raw", "raw": "{\n  \"to\": \"08123456789\",\n  \"code\": \"123456\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inbox (Chat)",
+      "item": [
+        { "name": "Conversations", "request": { "method": "GET", "url": "{{baseUrl}}/chats?deviceId={{deviceId}}" } },
+        { "name": "Thread", "request": { "method": "GET", "url": "{{baseUrl}}/chats/628123456789?deviceId={{deviceId}}" } },
+        {
+          "name": "Mark Seen",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/chats/628123456789/seen",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}}\n}" }
+          }
+        },
+        {
+          "name": "Reply",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/chats/628123456789/reply",
+            "body": { "mode": "raw", "raw": "{\n  \"deviceId\": {{deviceId}},\n  \"body\": \"Terima kasih sudah menghubungi kami.\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        { "name": "Events", "request": { "method": "GET", "url": "{{baseUrl}}/webhooks/events" } },
+        { "name": "Deliveries", "request": { "method": "GET", "url": "{{baseUrl}}/webhooks/deliveries" } },
+        {
+          "name": "Test",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/webhooks/test",
+            "body": { "mode": "raw", "raw": "{\n  \"url\": \"https://your-app.com/wa/webhook\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Monitoring",
+      "item": [
+        { "name": "Dashboard", "request": { "method": "GET", "url": "{{baseUrl}}/monitoring/dashboard" } },
+        { "name": "System", "request": { "method": "GET", "url": "{{baseUrl}}/monitoring/system" } },
+        { "name": "Activity", "request": { "method": "GET", "url": "{{baseUrl}}/monitoring/activity" } },
+        { "name": "Chart", "request": { "method": "GET", "url": "{{baseUrl}}/monitoring/chart?days=7" } }
+      ]
+    },
+    {
+      "name": "Logs",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/logs?page=1&limit=25" } },
+        { "name": "Stats", "request": { "method": "GET", "url": "{{baseUrl}}/logs/stats" } }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        { "name": "Users", "request": { "method": "GET", "url": "{{baseUrl}}/users" } },
+        { "name": "Roles", "request": { "method": "GET", "url": "{{baseUrl}}/roles" } },
+        { "name": "Permissions", "request": { "method": "GET", "url": "{{baseUrl}}/roles/permissions" } },
+        {
+          "name": "Create API Key",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api-keys",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Helpdesk ERP\",\n  \"defaultDeviceId\": {{deviceId}}\n}" }
+          }
+        },
+        { "name": "List API Keys", "request": { "method": "GET", "url": "{{baseUrl}}/api-keys" } },
+        { "name": "Settings", "request": { "method": "GET", "url": "{{baseUrl}}/settings" } }
+      ]
+    }
+  ]
+}

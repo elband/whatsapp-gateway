@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (lint · prisma · test)
+    runs-on: ubuntu-latest
+    env:
+      # Nilai dummy untuk unit test (tidak konek DB; NODE_ENV=test → guard prod dilewati)
+      DATABASE_URL: "mysql://ci:ci@127.0.0.1:3306/ci_test"
+      JWT_ACCESS_SECRET: "ci-access-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      JWT_REFRESH_SECRET: "ci-refresh-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      SESSION_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install
+        working-directory: backend
+        run: npm ci
+      - name: Prisma generate
+        working-directory: backend
+        run: npx prisma generate
+      - name: Prisma schema validate
+        working-directory: backend
+        run: npx prisma validate
+      - name: Unit tests
+        working-directory: backend
+        run: npm test
+
+  frontend:
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  security:
+    name: Security (audit · secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm audit (high)
+        working-directory: backend
+        run: npm audit --audit-level=high || true
+      - name: Gitleaks (secret scan)
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true

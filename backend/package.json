@@ -1,0 +1,60 @@
+{
+  "name": "whatsapp-gateway-backend",
+  "version": "1.0.0",
+  "description": "WhatsApp Gateway Enterprise - Backend API (Express + Baileys + Prisma + BullMQ)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "worker": "node src/queue/worker.js",
+    "seed": "node prisma/seed.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "lint": "eslint src --ext .js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@prisma/client": "^5.22.0",
+    "@prisma/extension-read-replicas": "^0.3.0",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.34.0",
+    "compression": "^1.7.5",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "ioredis": "^5.4.2",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "libphonenumber-js": "^1.11.17",
+    "multer": "^1.4.5-lts.1",
+    "nanoid": "^5.0.9",
+    "node-cron": "^3.0.3",
+    "pino": "^9.5.0",
+    "pino-pretty": "^13.0.0",
+    "qrcode": "^1.5.4",
+    "rate-limit-redis": "^4.2.0",
+    "socket.io": "^4.8.1",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "systeminformation": "^5.23.8",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "eslint": "^9.17.0",
+    "prisma": "^5.22.0",
+    "vitest": "^4.1.9"
+  }
+}

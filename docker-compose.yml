@@ -1,0 +1,63 @@
+# ==========================================================
+# OPSIONAL — stack lengkap untuk dev/uji cepat (app + MySQL + Redis).
+# Produksi disarankan tetap Ubuntu + PM2/Nginx (docs/DEPLOYMENT.md).
+# Jalankan: docker compose up -d --build
+# ==========================================================
+services:
+  mysql:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: whatsapp_gateway
+      MARIADB_USER: wagateway
+      MARIADB_PASSWORD: secret
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      APP_URL: http://localhost:4000
+      CORS_ORIGINS: http://localhost:4000
+      DATABASE_URL: "mysql://wagateway:secret@mysql:3306/whatsapp_gateway"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # WAJIB ganti dengan nilai acak (lihat .env.production.example)
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY}
+      DOCS_USER: ${DOCS_USER}
+      DOCS_PASS: ${DOCS_PASS}
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./sessions:/app/sessions
+      - ./logs:/app/logs
+
+volumes:
+  mysql_data:
+  redis_data:

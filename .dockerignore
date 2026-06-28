@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+!**/.env.example
+logs/*
+uploads/*
+sessions/*
+storage/*
+.git
+.github
+*.log
+.pm2
+docs

@@ -1,0 +1,14 @@
+# Rotasi log WhatsApp Gateway
+# Pasang: sudo cp scripts/logrotate-whatsapp-gateway /etc/logrotate.d/whatsapp-gateway
+# Uji   : sudo logrotate -d /etc/logrotate.d/whatsapp-gateway
+/var/www/whatsapp-gateway/logs/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    dateext
+    su wagateway wagateway
+}

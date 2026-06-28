@@ -1,0 +1,363 @@
+import * as baileys from '@whiskeysockets/baileys';
+import qrcode from 'qrcode';
+import { Boom } from '@hapi/boom';
+import { prisma } from '../config/prisma.js';
+import { logger } from '../config/logger.js';
+import { env } from '../config/env.js';
+import { redis } from '../config/redis.js';
+import { clusterEnabled, SHARD_ID } from '../cluster/clusterConfig.js';
+import { ownKey } from '../cluster/deviceRouter.js';
+import { useDbAuthState } from './useDbAuthState.js';
+import * as socket from '../realtime/emit.js';
+import { dispatchWebhook } from '../services/webhookService.js';
+import { writeLog } from '../services/logService.js';
+import { runAutoreply } from '../services/autoresponderService.js';
+import { fromJid } from '../utils/phone.js';
+
+const {
+  default: makeWASocket,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
+  isJidBroadcast,
+  isJidStatusBroadcast,
+  isJidGroup,
+} = baileys;
+
+// Mengelola banyak koneksi WhatsApp (multi-device).
+class BaileysManager {
+  constructor() {
+    /** @type {Map<number, import('@whiskeysockets/baileys').WASocket>} */
+    this.sockets = new Map();
+    this.starting = new Set(); // mencegah start ganda
+    this.retries = new Map();
+  }
+
+  // Dipanggil saat boot: pulihkan semua device yang sebelumnya terhubung.
+  async restoreAll() {
+    const devices = await prisma.device.findMany({
+      where: { status: { in: ['CONNECTED', 'CONNECTING', 'QR', 'INITIALIZING'] } },
+    });
+    logger.info(`Memulihkan ${devices.length} sesi WhatsApp...`);
+    for (const device of devices) {
+      this.startDevice(device.id).catch((err) =>
+        logger.error({ err, deviceId: device.id }, 'Gagal memulihkan device'),
+      );
+    }
+  }
+
+  getSocket(devicePk) {
+    return this.sockets.get(devicePk);
+  }
+
+  isConnected(devicePk) {
+    const sock = this.sockets.get(devicePk);
+    return Boolean(sock?.user);
+  }
+
+  async updateDeviceStatus(devicePk, data) {
+    const device = await prisma.device.update({ where: { id: devicePk }, data });
+    socket.emit('device:status', {
+      id: device.id,
+      deviceId: device.deviceId,
+      status: device.status,
+      phoneNumber: device.phoneNumber,
+      lastSeenAt: device.lastSeenAt,
+    });
+    socket.emitToDevice(device.id, 'device:update', device);
+    return device;
+  }
+
+  async startDevice(devicePk) {
+    if (this.sockets.has(devicePk) || this.starting.has(devicePk)) {
+      logger.warn({ devicePk }, 'Device sudah berjalan/sedang start');
+      return;
+    }
+    this.starting.add(devicePk);
+
+    try {
+      const device = await prisma.device.findUnique({ where: { id: devicePk } });
+      if (!device) throw new Error('Device tidak ditemukan');
+
+      // F3: klaim kepemilikan device (anti split-brain antar shard).
+      if (clusterEnabled) {
+        const acquired = await redis.set(ownKey(devicePk), String(SHARD_ID), 'NX', 'EX', 30);
+        if (!acquired) {
+          const owner = await redis.get(ownKey(devicePk));
+          if (owner !== String(SHARD_ID)) {
+            logger.warn({ devicePk, owner }, 'Device dimiliki shard lain — start dilewati');
+            this.starting.delete(devicePk);
+            return;
+          }
+        }
+      }
+
+      const { state, saveCreds } = await useDbAuthState(devicePk);
+      const { version } = await fetchLatestBaileysVersion();
+
+      const sock = makeWASocket({
+        version,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, logger),
+        },
+        printQRInTerminal: false,
+        browser: ['WhatsApp Gateway', 'Chrome', '1.0.0'],
+        markOnlineOnConnect: false,
+        syncFullHistory: false,
+        generateHighQualityLinkPreview: true,
+        logger,
+      });
+
+      this.sockets.set(devicePk, sock);
+
+      sock.ev.on('creds.update', saveCreds);
+      sock.ev.on('connection.update', (update) =>
+        this.handleConnectionUpdate(devicePk, update).catch((e) =>
+          logger.error({ e, devicePk }, 'connection.update error'),
+        ),
+      );
+      sock.ev.on('messages.upsert', (m) =>
+        this.handleIncoming(devicePk, m).catch((e) =>
+          logger.error({ e, devicePk }, 'messages.upsert error'),
+        ),
+      );
+      sock.ev.on('messages.update', (updates) =>
+        this.handleMessageUpdate(devicePk, updates).catch(() => {}),
+      );
+
+      await this.updateDeviceStatus(devicePk, { status: 'CONNECTING' });
+    } catch (err) {
+      logger.error({ err, devicePk }, 'startDevice gagal');
+      this.sockets.delete(devicePk);
+      throw err;
+    } finally {
+      this.starting.delete(devicePk);
+    }
+  }
+
+  async handleConnectionUpdate(devicePk, update) {
+    const { connection, lastDisconnect, qr } = update;
+    const device = await prisma.device.findUnique({ where: { id: devicePk } });
+    if (!device) return;
+
+    if (qr) {
+      const qrDataUrl = await qrcode.toDataURL(qr);
+      await this.updateDeviceStatus(devicePk, { status: 'QR', qr: qrDataUrl });
+      socket.emitToDevice(devicePk, 'device:qr', { id: devicePk, qr: qrDataUrl });
+      socket.emit('device:qr', { id: devicePk, qr: qrDataUrl });
+      dispatchWebhook(device, 'qr.updated', { qr: qrDataUrl });
+    }
+
+    if (connection === 'open') {
+      const sock = this.sockets.get(devicePk);
+      const phone = fromJid(sock?.user?.id);
+      this.retries.set(devicePk, 0);
+      await this.updateDeviceStatus(devicePk, {
+        status: 'CONNECTED',
+        qr: null,
+        phoneNumber: phone,
+        connectedAt: new Date(),
+        lastSeenAt: new Date(),
+      });
+      writeLog({ type: 'DEVICE', action: 'device.connected', message: device.name, deviceId: devicePk });
+      dispatchWebhook(device, 'device.connected', { phoneNumber: phone });
+      logger.info({ devicePk, phone }, 'Device terhubung');
+    }
+
+    if (connection === 'close') {
+      const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
+      const loggedOut = statusCode === DisconnectReason.loggedOut;
+      this.sockets.delete(devicePk);
+
+      if (loggedOut) {
+        const { clear } = await useDbAuthState(devicePk);
+        await clear();
+        await this.updateDeviceStatus(devicePk, {
+          status: 'LOGGED_OUT',
+          qr: null,
+          phoneNumber: null,
+        });
+        writeLog({ type: 'DEVICE', level: 'WARN', action: 'device.logged_out', deviceId: devicePk });
+        dispatchWebhook(device, 'device.disconnected', { reason: 'logged_out' });
+        logger.warn({ devicePk }, 'Device logout (perlu scan QR ulang)');
+        return;
+      }
+
+      await this.updateDeviceStatus(devicePk, { status: 'DISCONNECTED', lastSeenAt: new Date() });
+      dispatchWebhook(device, 'device.disconnected', { reason: statusCode });
+
+      // Auto-reconnect dengan backoff.
+      if (device.autoReconnect) {
+        const attempt = (this.retries.get(devicePk) || 0) + 1;
+        this.retries.set(devicePk, attempt);
+        const delay = Math.min(30000, 2000 * attempt);
+        logger.warn({ devicePk, attempt, delay }, 'Reconnect dijadwalkan');
+        setTimeout(() => {
+          this.startDevice(devicePk).catch((e) =>
+            logger.error({ e, devicePk }, 'Reconnect gagal'),
+          );
+        }, delay);
+      }
+    }
+  }
+
+  async handleIncoming(devicePk, { messages, type }) {
+    if (type !== 'notify') return;
+    const device = await prisma.device.findUnique({ where: { id: devicePk } });
+    if (!device) return;
+
+    for (const msg of messages) {
+      if (!msg.message || msg.key.fromMe) continue;
+      const remoteJid = msg.key.remoteJid;
+      if (isJidBroadcast(remoteJid) || isJidStatusBroadcast(remoteJid)) continue;
+
+      // L6: deteksi pesan grup & simpan partisipan (pengirim sebenarnya).
+      const isGroup = isJidGroup ? isJidGroup(remoteJid) : String(remoteJid).endsWith('@g.us');
+      const participant = isGroup ? fromJid(msg.key.participant) : null;
+
+      const body =
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text ||
+        msg.message.imageMessage?.caption ||
+        msg.message.videoMessage?.caption ||
+        '';
+
+      const record = await prisma.message.create({
+        data: {
+          deviceId: devicePk,
+          direction: 'INBOUND',
+          type: 'TEXT',
+          status: 'DELIVERED',
+          from: fromJid(remoteJid),
+          to: device.phoneNumber,
+          body,
+          waMessageId: msg.key.id,
+          meta: { pushName: msg.pushName, isGroup, participant, groupJid: isGroup ? remoteJid : undefined },
+          deliveredAt: new Date(),
+        },
+      });
+
+      socket.emit('message:incoming', record);
+      dispatchWebhook(device, 'message.incoming', {
+        from: fromJid(remoteJid),
+        pushName: msg.pushName,
+        body,
+        messageId: msg.key.id,
+        isGroup,
+        participant,
+      });
+
+      // Auto-reply berbasis keyword (best-effort).
+      runAutoreply({ device, fromPhone: fromJid(remoteJid), text: body, pushName: msg.pushName }).catch(
+        (e) => logger.warn({ e: e.message }, 'Autoreply gagal'),
+      );
+    }
+  }
+
+  async handleMessageUpdate(devicePk, updates) {
+    const device = await prisma.device.findUnique({ where: { id: devicePk } });
+    for (const u of updates) {
+      const waId = u.key?.id;
+      if (!waId) continue;
+      const status = u.update?.status;
+      if (status === undefined) continue;
+
+      // Baileys status: 2=SERVER_ACK(sent),3=DELIVERY_ACK(delivered),4=READ
+      let newStatus = null;
+      const data = {};
+      if (status >= 4) {
+        newStatus = 'READ';
+        data.readAt = new Date();
+      } else if (status === 3) {
+        newStatus = 'DELIVERED';
+        data.deliveredAt = new Date();
+      }
+      if (!newStatus) continue;
+
+      const msg = await prisma.message.findFirst({ where: { waMessageId: waId, deviceId: devicePk } });
+      if (!msg) continue;
+      await prisma.message.update({ where: { id: msg.id }, data: { status: newStatus, ...data } });
+      socket.emit('message:status', { id: msg.id, status: newStatus });
+      if (device) {
+        dispatchWebhook(device, newStatus === 'READ' ? 'message.read' : 'message.delivered', {
+          messageId: waId,
+          to: msg.to,
+        });
+      }
+    }
+  }
+
+  // Kirim pesan; dipanggil oleh worker queue.
+  async sendMessage(devicePk, jid, content, options = {}) {
+    const sock = this.sockets.get(devicePk);
+    if (!sock || !sock.user) {
+      throw new Error('Device tidak terhubung');
+    }
+    return sock.sendMessage(jid, content, options);
+  }
+
+  // Cek apakah nomor terdaftar di WhatsApp.
+  async checkNumber(devicePk, jid) {
+    const sock = this.sockets.get(devicePk);
+    if (!sock?.user) throw new Error('Device tidak terhubung');
+    const [result] = await sock.onWhatsApp(jid);
+    return result?.exists ? result.jid : null;
+  }
+
+  async logoutDevice(devicePk) {
+    const sock = this.sockets.get(devicePk);
+    try {
+      if (sock) await sock.logout();
+    } catch (err) {
+      logger.warn({ err, devicePk }, 'logout error (diabaikan)');
+    }
+    this.sockets.delete(devicePk);
+    this.retries.delete(devicePk);
+    if (clusterEnabled) await redis.del(ownKey(devicePk)).catch(() => {});
+    const { clear } = await useDbAuthState(devicePk);
+    await clear();
+    await this.updateDeviceStatus(devicePk, { status: 'LOGGED_OUT', qr: null, phoneNumber: null });
+  }
+
+  // Putuskan koneksi tanpa logout (sesi tetap tersimpan).
+  async stopDevice(devicePk) {
+    const sock = this.sockets.get(devicePk);
+    try {
+      sock?.end(undefined);
+    } catch {
+      // ignore
+    }
+    this.sockets.delete(devicePk);
+    this.retries.delete(devicePk);
+    if (clusterEnabled) await redis.del(ownKey(devicePk)).catch(() => {});
+    await this.updateDeviceStatus(devicePk, { status: 'DISCONNECTED' });
+  }
+
+  // F3: id device yang dipegang proses ini (untuk perpanjang lock & heartbeat).
+  ownedDeviceIds() {
+    return [...this.sockets.keys()];
+  }
+
+  // Perpanjang TTL lock kepemilikan agar tidak kedaluwarsa selama aktif.
+  async renewLocks() {
+    if (!clusterEnabled) return;
+    for (const id of this.sockets.keys()) {
+      await redis.set(ownKey(id), String(SHARD_ID), 'EX', 30).catch(() => {});
+    }
+  }
+
+  async shutdown() {
+    for (const [pk, sock] of this.sockets) {
+      try {
+        sock.end(undefined);
+      } catch {
+        // ignore
+      }
+      this.sockets.delete(pk);
+    }
+  }
+}
+
+export const baileysManager = new BaileysManager();
+export default baileysManager;
