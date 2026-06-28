@@ -9,6 +9,7 @@ import Badge from '../components/Badge'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
+import { normalizePhonePreview } from '../lib/phone'
 
 export default function Contacts() {
   const [rows, setRows] = useState([])
@@ -239,7 +240,10 @@ function ContactModal({ contact, groups, onClose, onSaved }) {
         </div>
         <div>
           <label className="label">Phone *</label>
-          <input className="input" value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          <input className="input" placeholder="08123456789" value={form.phone || ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+          {form.phone ? (() => { const p = normalizePhonePreview(form.phone); return (
+            <p className={`mt-1 text-xs ${p.ok ? 'text-slate-500' : 'text-red-500'}`}>{p.ok ? `Disimpan sebagai ${p.display}` : 'Nomor tidak valid'}</p>
+          ) })() : null}
         </div>
         <div>
           <label className="label">Email</label>

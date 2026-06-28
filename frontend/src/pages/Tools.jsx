@@ -5,6 +5,7 @@ import api, { msgOf } from '../lib/api'
 import PageHeader from '../components/PageHeader'
 import Badge from '../components/Badge'
 import Spinner from '../components/Spinner'
+import { normalizePhonePreview } from '../lib/phone'
 
 export default function Tools() {
   const [devices, setDevices] = useState([])
@@ -76,10 +77,19 @@ function CheckNumberCard({ devices }) {
         <label className="label">Nomor (satu per baris)</label>
         <textarea
           className="input min-h-[120px]"
-          placeholder={'6281234567890\n6289876543210'}
+          placeholder={'08123456789\n628987654321'}
           value={numbers}
           onChange={(e) => setNumbers(e.target.value)}
         />
+        {numbers.trim() ? (() => {
+          const lines = numbers.split('\n').map((l) => l.trim()).filter(Boolean)
+          const invalid = lines.filter((l) => !normalizePhonePreview(l).ok).length
+          return (
+            <p className={`mt-1 text-xs ${invalid ? 'text-amber-600' : 'text-slate-500'}`}>
+              {lines.length} nomor{invalid ? ` · ${invalid} tampak tidak valid` : ' · semua tampak valid'}
+            </p>
+          )
+        })() : null}
       </div>
 
       <button className="btn-primary w-full" onClick={check} disabled={loading}>
@@ -185,7 +195,10 @@ function OtpCard({ devices }) {
       <div className="grid grid-cols-3 gap-2">
         <div className="col-span-2">
           <label className="label">Nomor tujuan</label>
-          <input className="input" placeholder="6281234567890" value={to} onChange={(e) => setTo(e.target.value)} />
+          <input className="input" placeholder="08123456789" value={to} onChange={(e) => setTo(e.target.value)} />
+          {to ? (() => { const p = normalizePhonePreview(to); return (
+            <p className={`mt-1 text-xs ${p.ok ? 'text-slate-500' : 'text-red-500'}`}>{p.ok ? `→ ${p.display}` : 'Nomor tidak valid'}</p>
+          ) })() : null}
         </div>
         <div>
           <label className="label">Panjang</label>
@@ -202,7 +215,10 @@ function OtpCard({ devices }) {
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="label">Nomor</label>
-            <input className="input" placeholder="6281234567890" value={verifyTo} onChange={(e) => setVerifyTo(e.target.value)} />
+            <input className="input" placeholder="08123456789" value={verifyTo} onChange={(e) => setVerifyTo(e.target.value)} />
+            {verifyTo ? (() => { const p = normalizePhonePreview(verifyTo); return (
+              <p className={`mt-1 text-xs ${p.ok ? 'text-slate-500' : 'text-red-500'}`}>{p.ok ? `→ ${p.display}` : 'Nomor tidak valid'}</p>
+            ) })() : null}
           </div>
           <div>
             <label className="label">Kode</label>
