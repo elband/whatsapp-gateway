@@ -10,6 +10,7 @@ import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
 import { fmtDate } from '../lib/utils'
 import { onSocket } from '../lib/socket'
+import { normalizePhonePreview } from '../lib/phone'
 
 const TYPES = ['text', 'media', 'location', 'contact', 'buttons', 'list']
 
@@ -237,10 +238,18 @@ export default function Messages() {
             <label className="label">Recipient (phone)</label>
             <input
               className="input"
-              placeholder="6281234567890"
+              placeholder="08123456789 atau 628123456789"
               value={form.to || ''}
               onChange={(e) => setForm({ ...form, to: e.target.value })}
             />
+            {form.to ? (() => {
+              const p = normalizePhonePreview(form.to)
+              return (
+                <p className={`mt-1 text-xs ${p.ok ? 'text-slate-500' : 'text-red-500'}`}>
+                  {p.ok ? `Akan dikirim ke ${p.display}` : 'Nomor tidak valid'}
+                </p>
+              )
+            })() : null}
           </div>
 
           {sendType === 'text' && (
