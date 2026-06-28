@@ -214,7 +214,17 @@ class BaileysManager {
 
       // L6: deteksi pesan grup & simpan partisipan (pengirim sebenarnya).
       const isGroup = isJidGroup ? isJidGroup(remoteJid) : String(remoteJid).endsWith('@g.us');
-      const participant = isGroup ? fromJid(msg.key.participant) : null;
+
+      // WhatsApp LID: pesan masuk bisa beralamat <id>@lid. Pakai NOMOR TELEPON asli
+      // (senderPn) agar tidak terpecah dari thread nomor yang sama.
+      const isLid = String(remoteJid).endsWith('@lid');
+      const senderJid = isGroup
+        ? msg.key.participant
+        : isLid
+          ? msg.key.senderPn || msg.key.participantPn || remoteJid
+          : remoteJid;
+      const fromPhone = fromJid(senderJid);
+      const participant = isGroup ? fromPhone : null;
 
       const body =
         msg.message.conversation ||
@@ -229,18 +239,18 @@ class BaileysManager {
           direction: 'INBOUND',
           type: 'TEXT',
           status: 'DELIVERED',
-          from: fromJid(remoteJid),
+          from: isGroup ? fromJid(remoteJid) : fromPhone,
           to: device.phoneNumber,
           body,
           waMessageId: msg.key.id,
-          meta: { pushName: msg.pushName, isGroup, participant, groupJid: isGroup ? remoteJid : undefined },
+          meta: { pushName: msg.pushName, isGroup, participant, lid: isLid ? fromJid(remoteJid) : undefined, groupJid: isGroup ? remoteJid : undefined },
           deliveredAt: new Date(),
         },
       });
 
       socket.emit('message:incoming', record);
       dispatchWebhook(device, 'message.incoming', {
-        from: fromJid(remoteJid),
+        from: record.from,
         pushName: msg.pushName,
         body,
         messageId: msg.key.id,
@@ -249,7 +259,7 @@ class BaileysManager {
       });
 
       // Auto-reply berbasis keyword (best-effort).
-      runAutoreply({ device, fromPhone: fromJid(remoteJid), text: body, pushName: msg.pushName }).catch(
+      runAutoreply({ device, fromPhone, text: body, pushName: msg.pushName }).catch(
         (e) => logger.warn({ e: e.message }, 'Autoreply gagal'),
       );
     }
