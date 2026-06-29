@@ -28,6 +28,16 @@ async function processSingle(messageId) {
   const jid = toJid(message.to);
   if (!jid) throw new Error('Nomor tujuan tidak valid');
 
+  // Verifikasi nomor terdaftar di WhatsApp & pakai JID kanonik hasil resolusi.
+  // Mencegah status "SENT" palsu: jika nomor tidak punya WhatsApp, Baileys tetap
+  // menerima pesan & mengembalikan key.id, tapi pesan tak pernah terkirim.
+  let targetJid = jid;
+  if (message.type !== 'GROUP' && !String(jid).endsWith('@g.us')) {
+    const resolved = await baileysManager.checkNumber(message.deviceId, jid);
+    if (!resolved) throw new Error('Nomor tidak terdaftar di WhatsApp');
+    targetJid = resolved;
+  }
+
   const att = message.attachments[0];
   const content = buildContent({
     type: message.type,
@@ -45,7 +55,7 @@ async function processSingle(messageId) {
   await prisma.message.update({ where: { id: messageId }, data: { status: 'SENDING' } });
 
   try {
-    const sent = await baileysManager.sendMessage(message.deviceId, jid, content);
+    const sent = await baileysManager.sendMessage(message.deviceId, targetJid, content);
     const updated = await prisma.message.update({
       where: { id: messageId },
       data: { status: 'SENT', waMessageId: sent?.key?.id, sentAt: new Date(), error: null },
@@ -105,6 +115,22 @@ async function processBroadcastItem(itemId) {
     return;
   }
 
+  // Verifikasi nomor terdaftar di WhatsApp & pakai JID kanonik (cegah SENT palsu).
+  let targetJid = jid;
+  try {
+    const resolved = await baileysManager.checkNumber(bc.deviceId, jid);
+    if (!resolved) {
+      await prisma.broadcastItem.update({ where: { id: itemId }, data: { status: 'FAILED', error: 'Nomor tidak terdaftar di WhatsApp' } });
+      await bumpBroadcast(bc.id, 'failed');
+      return;
+    }
+    targetJid = resolved;
+  } catch (err) {
+    await prisma.broadcastItem.update({ where: { id: itemId }, data: { status: 'FAILED', error: err.message } });
+    await bumpBroadcast(bc.id, 'failed');
+    throw err;
+  }
+
   const content = buildContent({
     type: bc.messageType,
     body,
@@ -115,7 +141,7 @@ async function processBroadcastItem(itemId) {
 
   try {
     await prisma.broadcastItem.update({ where: { id: itemId }, data: { status: 'SENDING', attempts: { increment: 1 } } });
-    const sent = await baileysManager.sendMessage(bc.deviceId, jid, content);
+    const sent = await baileysManager.sendMessage(bc.deviceId, targetJid, content);
 
     const message = await prisma.message.create({
       data: {
