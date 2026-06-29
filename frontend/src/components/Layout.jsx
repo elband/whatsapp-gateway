@@ -15,6 +15,7 @@ import {
   UserCog,
   Shield,
   KeyRound,
+  BookText,
   Settings as SettingsIcon,
   Menu,
   X,
@@ -45,6 +46,7 @@ const NAV = [
   { to: '/users', label: 'Users', icon: UserCog },
   { to: '/roles', label: 'Roles', icon: Shield },
   { to: '/api-keys', label: 'API Keys', icon: KeyRound },
+  { to: '/api-docs', label: 'API Docs', icon: BookText },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ]
 

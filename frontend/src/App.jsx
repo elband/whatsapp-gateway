@@ -23,6 +23,7 @@ const Logs = lazy(() => import('./pages/Logs'))
 const Users = lazy(() => import('./pages/Users'))
 const Roles = lazy(() => import('./pages/Roles'))
 const ApiKeys = lazy(() => import('./pages/ApiKeys'))
+const ApiDocs = lazy(() => import('./pages/ApiDocs'))
 const Settings = lazy(() => import('./pages/Settings'))
 
 export default function App() {
@@ -76,6 +77,7 @@ export default function App() {
         <Route path="/users" element={<Users />} />
         <Route path="/roles" element={<Roles />} />
         <Route path="/api-keys" element={<ApiKeys />} />
+        <Route path="/api-docs" element={<ApiDocs />} />
         <Route path="/settings" element={<Settings />} />
       </Route>
 
