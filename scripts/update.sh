@@ -28,4 +28,4 @@ cd "$APP_DIR"
 pm2 reload ecosystem.config.cjs --update-env
 pm2 save
 
-echo "==> Update selesai. Health: $(curl -s http://127.0.0.1:4000/health || echo 'gagal')"
+echo "==> Update selesai. Health: $(curl -s http://127.0.0.1:4001/health || echo 'gagal')"

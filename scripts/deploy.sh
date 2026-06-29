@@ -31,4 +31,4 @@ cd "$APP_DIR"
 pm2 startOrReload ecosystem.config.cjs
 pm2 save
 
-echo "==> Deploy selesai. Cek: pm2 status && curl -s http://127.0.0.1:4000/health"
+echo "==> Deploy selesai. Cek: pm2 status && curl -s http://127.0.0.1:4001/health"

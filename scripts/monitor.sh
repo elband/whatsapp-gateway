@@ -3,7 +3,7 @@
 # Cron contoh (tiap 5 menit): */5 * * * * /var/www/whatsapp-gateway/scripts/monitor.sh >> /var/www/whatsapp-gateway/logs/monitor.log 2>&1
 set -uo pipefail
 
-HEALTH_URL="http://127.0.0.1:4000/health"
+HEALTH_URL="http://127.0.0.1:4001/health"
 STAMP=$(date '+%Y-%m-%d %H:%M:%S')
 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_URL" || echo "000")
