@@ -63,6 +63,11 @@ export const env = {
   broadcast: {
     minDelayMs: toInt(process.env.BROADCAST_MIN_DELAY_MS, 3000),
     maxDelayMs: toInt(process.env.BROADCAST_MAX_DELAY_MS, 8000),
+    // Anti-ban: setiap `batchSize` pesan, sisipkan istirahat panjang acak
+    // (batchRestMin..Max) sebelum lanjut. batchSize <= 0 menonaktifkan fitur.
+    batchSize: toInt(process.env.BROADCAST_BATCH_SIZE, 30),
+    batchRestMinMs: toInt(process.env.BROADCAST_BATCH_REST_MIN_MS, 180000), // 3 menit
+    batchRestMaxMs: toInt(process.env.BROADCAST_BATCH_REST_MAX_MS, 600000), // 10 menit
   },
 
   // Concurrency worker queue (tunable; mitigasi parsial throughput - H5).

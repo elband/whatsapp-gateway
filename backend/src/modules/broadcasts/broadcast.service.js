@@ -83,6 +83,8 @@ export async function create(data, file, userId) {
 }
 
 // Masukkan semua item QUEUED ke queue dengan jeda acak kumulatif.
+// Anti-ban: tiap `batchSize` pesan, sisipkan istirahat panjang (batchRest*)
+// sebelum batch berikutnya — meniru pola manusia, hindari kirim beruntun nonstop.
 export async function start(broadcastId) {
   const broadcast = await prisma.broadcast.findUnique({ where: { id: broadcastId } });
   if (!broadcast) throw ApiError.notFound('Broadcast tidak ditemukan');
@@ -92,11 +94,19 @@ export async function start(broadcastId) {
     select: { id: true },
   });
 
+  const { batchSize, batchRestMinMs, batchRestMaxMs } = env.broadcast;
   const shard = await shardForDevice(broadcast.deviceId);
   let cumulative = 0;
+  let sentInSchedule = 0;
   for (const item of items) {
     await enqueueBroadcastItem(item.id, shard, cumulative);
+    sentInSchedule += 1;
+    // Jeda normal antar pesan.
     cumulative += rand(broadcast.minDelayMs, broadcast.maxDelayMs);
+    // Istirahat panjang tiap kelipatan batchSize (kecuali item terakhir).
+    if (batchSize > 0 && sentInSchedule % batchSize === 0 && sentInSchedule < items.length) {
+      cumulative += rand(batchRestMinMs, batchRestMaxMs);
+    }
   }
   await prisma.broadcast.update({ where: { id: broadcastId }, data: { status: 'RUNNING', startedAt: broadcast.startedAt || new Date() } });
   socket.emit('broadcast:status', { id: broadcastId, status: 'RUNNING' });
