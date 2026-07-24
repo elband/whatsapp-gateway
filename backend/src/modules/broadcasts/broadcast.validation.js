@@ -11,6 +11,9 @@ export const createBroadcastSchema = {
     mediaPath: Joi.string().optional().allow('', null),
     minDelayMs: Joi.number().integer().min(0).optional(),
     maxDelayMs: Joi.number().integer().min(0).optional(),
+    batchSize: Joi.number().integer().min(0).optional(),
+    batchRestMinMs: Joi.number().integer().min(0).optional(),
+    batchRestMaxMs: Joi.number().integer().min(0).optional(),
     scheduledAt: Joi.date().iso().optional().allow(null),
     recipients: Joi.array().items(
       Joi.object({

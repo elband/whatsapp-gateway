@@ -333,6 +333,9 @@ model Broadcast {
   caption     String?         @db.Text
   minDelayMs  Int             @default(3000)
   maxDelayMs  Int             @default(8000)
+  batchSize      Int          @default(30)
+  batchRestMinMs Int          @default(180000)
+  batchRestMaxMs Int          @default(600000)
   scheduledAt DateTime?
   startedAt   DateTime?
   finishedAt  DateTime?

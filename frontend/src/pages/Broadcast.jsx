@@ -192,6 +192,9 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
     caption: '',
     minDelayMs: 3000,
     maxDelayMs: 8000,
+    batchSize: 30,
+    batchRestMinMs: 180000,
+    batchRestMaxMs: 600000,
     scheduledAt: '',
     recipientsText: '',
     contactGroupId: '',
@@ -243,6 +246,9 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
         if (form.caption) fd.append('caption', form.caption)
         fd.append('minDelayMs', form.minDelayMs)
         fd.append('maxDelayMs', form.maxDelayMs)
+        fd.append('batchSize', form.batchSize)
+        fd.append('batchRestMinMs', form.batchRestMinMs)
+        fd.append('batchRestMaxMs', form.batchRestMaxMs)
         if (form.scheduledAt) fd.append('scheduledAt', new Date(form.scheduledAt).toISOString())
         if (form.templateId) fd.append('templateId', form.templateId)
         if (recipientMode === 'group' && form.contactGroupId) fd.append('contactGroupId', form.contactGroupId)
@@ -259,6 +265,9 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
           caption: form.caption || undefined,
           minDelayMs: Number(form.minDelayMs),
           maxDelayMs: Number(form.maxDelayMs),
+          batchSize: Number(form.batchSize),
+          batchRestMinMs: Number(form.batchRestMinMs),
+          batchRestMaxMs: Number(form.batchRestMaxMs),
           scheduledAt: form.scheduledAt ? new Date(form.scheduledAt).toISOString() : undefined,
           recipients: recipientMode === 'manual' ? recipients : undefined,
           contactGroupId: recipientMode === 'group' ? form.contactGroupId || undefined : undefined,
@@ -359,6 +368,29 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
           <label className="label">Max delay (ms)</label>
           <input type="number" className="input" value={form.maxDelayMs} onChange={(e) => setForm({ ...form, maxDelayMs: e.target.value })} />
         </div>
+
+        <div className="sm:col-span-2 mt-1 border-t border-slate-100 pt-3">
+          <p className="text-sm font-semibold text-slate-700">Anti-ban: istirahat per-batch</p>
+          <p className="text-xs text-slate-400">Setiap sejumlah pesan, broadcast berhenti sejenak sebelum lanjut — meniru pola manusia agar nomor lebih aman.</p>
+        </div>
+        <div>
+          <label className="label">Ukuran batch (pesan)</label>
+          <input type="number" min="0" className="input" value={form.batchSize} onChange={(e) => setForm({ ...form, batchSize: e.target.value })} />
+          <p className="mt-1 text-xs text-slate-400">0 = matikan istirahat batch</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Istirahat min (ms)</label>
+            <input type="number" min="0" className="input" value={form.batchRestMinMs} onChange={(e) => setForm({ ...form, batchRestMinMs: e.target.value })} />
+            <p className="mt-1 text-xs text-slate-400">≈ {(Number(form.batchRestMinMs) / 60000 || 0).toFixed(1)} mnt</p>
+          </div>
+          <div>
+            <label className="label">Istirahat maks (ms)</label>
+            <input type="number" min="0" className="input" value={form.batchRestMaxMs} onChange={(e) => setForm({ ...form, batchRestMaxMs: e.target.value })} />
+            <p className="mt-1 text-xs text-slate-400">≈ {(Number(form.batchRestMaxMs) / 60000 || 0).toFixed(1)} mnt</p>
+          </div>
+        </div>
+
         <div className="sm:col-span-2">
           <label className="label">Schedule (optional)</label>
           <input

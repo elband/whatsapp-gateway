@@ -11,7 +11,16 @@ import { shardForDevice } from '../../cluster/deviceRouter.js';
 import * as socket from '../../realtime/emit.js';
 
 function rand(min, max) {
+  if (max < min) [min, max] = [max, min];
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// Ambil integer dari input; pakai fallback bila kosong. 0 tetap dihormati
+// (mis. batchSize=0 = matikan istirahat batch), jadi tidak boleh pakai `||`.
+function intOr(val, fallback) {
+  if (val === undefined || val === null || val === '') return fallback;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 // Bangun daftar penerima dari input (manual / contactGroupId / contactIds).
@@ -64,6 +73,9 @@ export async function create(data, file, userId) {
       mediaPath,
       minDelayMs: data.minDelayMs || env.broadcast.minDelayMs,
       maxDelayMs: data.maxDelayMs || env.broadcast.maxDelayMs,
+      batchSize: intOr(data.batchSize, env.broadcast.batchSize),
+      batchRestMinMs: intOr(data.batchRestMinMs, env.broadcast.batchRestMinMs),
+      batchRestMaxMs: intOr(data.batchRestMaxMs, env.broadcast.batchRestMaxMs),
       scheduledAt,
       status: isScheduled ? 'SCHEDULED' : 'DRAFT',
       total: recipients.length,
@@ -94,7 +106,10 @@ export async function start(broadcastId) {
     select: { id: true },
   });
 
-  const { batchSize, batchRestMinMs, batchRestMaxMs } = env.broadcast;
+  // Pengaturan istirahat per-batch: utamakan nilai per-broadcast, fallback ke env.
+  const batchSize = broadcast.batchSize ?? env.broadcast.batchSize;
+  const batchRestMinMs = broadcast.batchRestMinMs ?? env.broadcast.batchRestMinMs;
+  const batchRestMaxMs = broadcast.batchRestMaxMs ?? env.broadcast.batchRestMaxMs;
   const shard = await shardForDevice(broadcast.deviceId);
   let cumulative = 0;
   let sentInSchedule = 0;
