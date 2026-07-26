@@ -33,10 +33,16 @@ function isMatch(rule, text) {
 // Mencari autoresponder yang cocok lalu mengantre balasan.
 export async function runAutoreply({ device, fromPhone, text, pushName }) {
   if (!text) return;
+  // Multi-user: cocokkan autoresponder yang menyasar device ini secara spesifik,
+  // ATAU yang berlaku "semua device" (deviceId null) TAPI hanya milik pemilik device
+  // yang sama — agar aturan user A tidak terpicu di device milik user B.
   const rules = await prisma.autoresponder.findMany({
     where: {
       isActive: true,
-      OR: [{ deviceId: device.id }, { deviceId: null }],
+      OR: [
+        { deviceId: device.id },
+        { deviceId: null, ownerId: device.ownerId },
+      ],
     },
     orderBy: [{ priority: 'desc' }, { id: 'asc' }],
     include: { template: true },

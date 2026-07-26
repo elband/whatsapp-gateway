@@ -32,6 +32,10 @@ model User {
   apiKeys       ApiKey[]
   devices       Device[]
   auditLogs     Log[]
+  contacts       Contact[]        @relation("UserContacts")
+  contactGroups  ContactGroup[]   @relation("UserContactGroups")
+  templates      Template[]       @relation("UserTemplates")
+  autoresponders Autoresponder[]  @relation("UserAutoresponders")
 
   @@index([roleId])
   @@map("users")
@@ -164,6 +168,7 @@ model Device {
   @@index([groupId])
   @@index([status])
   @@index([shardId])
+  @@index([ownerId])
   @@map("devices")
 }
 
@@ -191,10 +196,13 @@ model ContactGroup {
   id        Int      @id @default(autoincrement())
   name      String
   color     String?
+  ownerId   Int?
+  owner     User?    @relation("UserContactGroups", fields: [ownerId], references: [id])
   createdAt DateTime @default(now())
 
   contacts ContactGroupMember[]
 
+  @@index([ownerId])
   @@map("contact_groups")
 }
 
@@ -205,13 +213,16 @@ model Contact {
   email     String?
   tags      Json?    // array of string
   meta      Json?    // field dinamis untuk variabel template
+  ownerId   Int?
+  owner     User?    @relation("UserContacts", fields: [ownerId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   groups ContactGroupMember[]
 
-  @@unique([phone])
+  @@unique([ownerId, phone])
   @@index([name])
+  @@index([ownerId])
   @@map("contacts")
 }
 
@@ -381,19 +392,23 @@ model BroadcastItem {
 
 model Template {
   id          Int         @id @default(autoincrement())
-  name        String      @unique
+  name        String
   type        MessageType @default(TEXT)
   body        String      @db.Text // boleh memuat {{variabel}}
   caption     String?     @db.Text
   mediaPath   String?
   variables   Json?       // daftar nama variabel terdeteksi
   description String?
+  ownerId     Int?
+  owner       User?       @relation("UserTemplates", fields: [ownerId], references: [id])
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   broadcasts     Broadcast[]
   autoresponders Autoresponder[]
 
+  @@unique([ownerId, name])
+  @@index([ownerId])
   @@map("templates")
 }
 
@@ -418,6 +433,8 @@ model Autoresponder {
   response   String    @db.Text
   templateId Int?
   template   Template? @relation(fields: [templateId], references: [id])
+  ownerId    Int?
+  owner      User?     @relation("UserAutoresponders", fields: [ownerId], references: [id])
   isActive   Boolean   @default(true)
   priority   Int       @default(0) // makin besar makin diutamakan
   hitCount   Int       @default(0)
@@ -425,6 +442,7 @@ model Autoresponder {
   updatedAt  DateTime  @updatedAt
 
   @@index([deviceId])
+  @@index([ownerId])
   @@map("autoresponders")
 }
 

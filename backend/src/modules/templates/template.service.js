@@ -2,9 +2,10 @@ import { prisma } from '../../config/prisma.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { extractVariables, renderTemplate } from '../../services/messageBuilder.js';
 import { writeLog } from '../../services/logService.js';
+import { ownerWhere, assertOwned } from '../../utils/ownerScope.js';
 
-export async function list({ skip, limit, search }) {
-  const where = {};
+export async function list({ skip, limit, search }, user) {
+  const where = { ...ownerWhere(user) };
   if (search) {
     where.OR = [
       { name: { contains: search } },
@@ -19,13 +20,13 @@ export async function list({ skip, limit, search }) {
   return { items, total };
 }
 
-export async function get(id) {
+export async function get(id, user) {
   const template = await prisma.template.findUnique({ where: { id } });
-  if (!template) throw ApiError.notFound('Template tidak ditemukan');
+  assertOwned(template, user, 'Template tidak ditemukan');
   return template;
 }
 
-export async function create(data, userId) {
+export async function create(data, user) {
   const variables = extractVariables(`${data.body || ''} ${data.caption || ''}`);
   const template = await prisma.template.create({
     data: {
@@ -36,14 +37,15 @@ export async function create(data, userId) {
       mediaPath: data.mediaPath || null,
       description: data.description || null,
       variables,
+      ownerId: user.id,
     },
   });
-  writeLog({ type: 'TEMPLATE', action: 'template.create', message: template.name, userId });
+  writeLog({ type: 'TEMPLATE', action: 'template.create', message: template.name, userId: user?.id });
   return template;
 }
 
-export async function update(id, data, userId) {
-  const current = await get(id);
+export async function update(id, data, user) {
+  const current = await get(id, user);
 
   const updateData = {};
   if (data.name !== undefined) updateData.name = data.name;
@@ -60,18 +62,18 @@ export async function update(id, data, userId) {
   }
 
   const template = await prisma.template.update({ where: { id }, data: updateData });
-  writeLog({ type: 'TEMPLATE', action: 'template.update', message: template.name, userId });
+  writeLog({ type: 'TEMPLATE', action: 'template.update', message: template.name, userId: user?.id });
   return template;
 }
 
-export async function remove(id, userId) {
-  await get(id);
+export async function remove(id, user) {
+  await get(id, user);
   await prisma.template.delete({ where: { id } });
-  writeLog({ type: 'TEMPLATE', action: 'template.delete', userId });
+  writeLog({ type: 'TEMPLATE', action: 'template.delete', userId: user?.id });
 }
 
-export async function preview(id, variables = {}) {
-  const template = await get(id);
+export async function preview(id, variables = {}, user) {
+  const template = await get(id, user);
   return {
     body: renderTemplate(template.body, variables),
     caption: renderTemplate(template.caption || '', variables),

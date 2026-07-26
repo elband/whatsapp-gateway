@@ -21,6 +21,7 @@ import EmptyState from '../components/EmptyState'
 import Spinner, { PageSpinner } from '../components/Spinner'
 import { onSocket } from '../lib/socket'
 import { fmtDate } from '../lib/utils'
+import { useAuth } from '../store/auth'
 
 export default function Devices() {
   const [devices, setDevices] = useState([])
@@ -29,6 +30,8 @@ export default function Devices() {
   const [addOpen, setAddOpen] = useState(false)
   const [confirm, setConfirm] = useState(null)
   const [qrDevice, setQrDevice] = useState(null)
+  const [users, setUsers] = useState([])
+  const isSuperAdmin = useAuth((s) => s.isSuperAdmin())
 
   const load = useCallback(async () => {
     try {
@@ -45,6 +48,25 @@ export default function Devices() {
     const t = setTimeout(load, 250)
     return () => clearTimeout(t)
   }, [load])
+
+  // Super admin: ambil daftar user untuk dropdown reassign kepemilikan.
+  useEffect(() => {
+    if (!isSuperAdmin) return
+    api.get('/users', { params: { limit: 200 } })
+      .then((r) => setUsers(r.data?.data || []))
+      .catch(() => {})
+  }, [isSuperAdmin])
+
+  const reassign = async (id, ownerId) => {
+    if (!ownerId) return
+    try {
+      await api.patch(`/devices/${id}/owner`, { ownerId: Number(ownerId) })
+      toast.success('Kepemilikan device dipindahkan')
+      load()
+    } catch (e) {
+      toast.error(msgOf(e))
+    }
+  }
 
   // Live status updates
   useEffect(() => {
@@ -165,6 +187,25 @@ export default function Devices() {
                   <span>Last seen</span>
                   <span className="text-slate-700">{fmtDate(d.lastSeenAt)}</span>
                 </div>
+                {isSuperAdmin && (
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <span>Owner</span>
+                    <select
+                      className="input h-7 max-w-[60%] py-0 text-xs"
+                      value={d.ownerId || ''}
+                      onChange={(e) => reassign(d.id, e.target.value)}
+                    >
+                      <option value="" disabled>
+                        {d.owner?.name || 'Tanpa pemilik'}
+                      </option>
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} ({u.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">

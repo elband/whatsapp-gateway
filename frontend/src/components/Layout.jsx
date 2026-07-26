@@ -31,6 +31,9 @@ import api from '../lib/api'
 import { connectSocket, disconnectSocket, getSocket } from '../lib/socket'
 import { cn } from '../lib/utils'
 
+// `perm` (opsional) menyembunyikan item bila user tak punya permission tsb.
+// Item khusus super_admin (Users/Roles/API Keys/Settings) otomatis tersembunyi
+// untuk admin biasa karena role-nya tidak memuat permission tersebut.
 const NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/chats', label: 'Inbox', icon: Inbox },
@@ -43,16 +46,17 @@ const NAV = [
   { to: '/tools', label: 'Tools', icon: Wrench },
   { to: '/webhooks', label: 'Webhooks', icon: Webhook },
   { to: '/logs', label: 'Logs', icon: ScrollText },
-  { to: '/users', label: 'Users', icon: UserCog },
-  { to: '/roles', label: 'Roles', icon: Shield },
-  { to: '/api-keys', label: 'API Keys', icon: KeyRound },
+  { to: '/users', label: 'Users', icon: UserCog, perm: 'user.read' },
+  { to: '/roles', label: 'Roles', icon: Shield, perm: 'role.read' },
+  { to: '/api-keys', label: 'API Keys', icon: KeyRound, perm: 'apikey.read' },
   { to: '/api-docs', label: 'API Docs', icon: BookText },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon },
+  { to: '/settings', label: 'Settings', icon: SettingsIcon, perm: 'setting.read' },
 ]
 
 export default function Layout() {
   const navigate = useNavigate()
-  const { user, logout, setUser } = useAuth()
+  const { user, logout, setUser, hasPermission } = useAuth()
+  const navItems = NAV.filter((n) => !n.perm || hasPermission(n.perm))
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [connected, setConnected] = useState(false)
@@ -131,7 +135,7 @@ export default function Layout() {
           </button>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-          {NAV.map(({ to, label, icon: Icon }) => (
+          {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}

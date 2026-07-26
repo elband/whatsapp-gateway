@@ -29,13 +29,16 @@ export const useAuth = create(
       logout: () =>
         set({ user: null, accessToken: null, refreshToken: null, permissions: [] }),
 
+      // Hanya super_admin yang bypass permission (selaras dengan backend rbac.js).
+      // admin biasa mengikuti daftar permission role-nya.
       hasPermission: (name) => {
         const { permissions, user } = get()
         if (!name) return true
-        const role = String(user?.role || '').toLowerCase()
-        if (role === 'admin' || role === 'super_admin') return true
+        if (String(user?.role || '').toLowerCase() === 'super_admin') return true
         return Array.isArray(permissions) && permissions.includes(name)
       },
+
+      isSuperAdmin: () => String(get().user?.role || '').toLowerCase() === 'super_admin',
     }),
     {
       name: 'wa-gateway-auth',

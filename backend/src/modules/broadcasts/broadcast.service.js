@@ -9,6 +9,7 @@ import { writeLog } from '../../services/logService.js';
 import { parseSort } from '../../utils/listQuery.js';
 import { shardForDevice } from '../../cluster/deviceRouter.js';
 import * as socket from '../../realtime/emit.js';
+import { deviceOwnerWhere, ownerWhere, assertOwned, assertDeviceOwned } from '../../utils/ownerScope.js';
 
 function rand(min, max) {
   if (max < min) [min, max] = [max, min];
@@ -24,7 +25,8 @@ function intOr(val, fallback) {
 }
 
 // Bangun daftar penerima dari input (manual / contactGroupId / contactIds).
-async function buildRecipients({ recipients, contactGroupId, contactIds }) {
+// Kontak dari DB dibatasi milik user (super admin: tanpa batas).
+async function buildRecipients({ recipients, contactGroupId, contactIds }, user) {
   const out = [];
   if (Array.isArray(recipients)) {
     for (const r of recipients) {
@@ -35,12 +37,12 @@ async function buildRecipients({ recipients, contactGroupId, contactIds }) {
   let contacts = [];
   if (contactGroupId) {
     const members = await prisma.contactGroupMember.findMany({
-      where: { groupId: Number(contactGroupId) },
+      where: { groupId: Number(contactGroupId), contact: { ...ownerWhere(user) } },
       include: { contact: true },
     });
     contacts = members.map((m) => m.contact);
   } else if (Array.isArray(contactIds) && contactIds.length) {
-    contacts = await prisma.contact.findMany({ where: { id: { in: contactIds.map(Number) } } });
+    contacts = await prisma.contact.findMany({ where: { id: { in: contactIds.map(Number) }, ...ownerWhere(user) } });
   }
   for (const c of contacts) {
     const phone = normalizePhone(c.phone);
@@ -51,11 +53,12 @@ async function buildRecipients({ recipients, contactGroupId, contactIds }) {
   return out.filter((r) => (seen.has(r.phone) ? false : seen.add(r.phone)));
 }
 
-export async function create(data, file, userId) {
+export async function create(data, file, user) {
+  const userId = user?.id ?? null;
   const device = await prisma.device.findUnique({ where: { id: Number(data.deviceId) } });
-  if (!device) throw ApiError.notFound('Device tidak ditemukan');
+  assertOwned(device, user, 'Device tidak ditemukan');
 
-  const recipients = await buildRecipients(data);
+  const recipients = await buildRecipients(data, user);
   if (recipients.length === 0) throw ApiError.badRequest('Tidak ada penerima valid');
 
   const mediaPath = file ? path.relative(uploadRoot, file.path) : data.mediaPath || null;
@@ -91,7 +94,7 @@ export async function create(data, file, userId) {
   writeLog({ type: 'BROADCAST', action: 'broadcast.create', message: broadcast.name, userId, meta: { total: recipients.length } });
 
   if (!isScheduled) await start(broadcast.id);
-  return get(broadcast.id);
+  return _get(broadcast.id);
 }
 
 // Masukkan semua item QUEUED ke queue dengan jeda acak kumulatif.
@@ -125,31 +128,33 @@ export async function start(broadcastId) {
   }
   await prisma.broadcast.update({ where: { id: broadcastId }, data: { status: 'RUNNING', startedAt: broadcast.startedAt || new Date() } });
   socket.emit('broadcast:status', { id: broadcastId, status: 'RUNNING' });
-  return get(broadcastId);
+  return _get(broadcastId);
 }
 
-export async function pause(id) {
+export async function pause(id, user) {
+  await get(id, user); // guard kepemilikan
   await prisma.broadcast.update({ where: { id }, data: { status: 'PAUSED' } });
   socket.emit('broadcast:status', { id, status: 'PAUSED' });
-  return get(id);
+  return _get(id);
 }
 
-export async function resume(id) {
-  const bc = await prisma.broadcast.findUnique({ where: { id } });
-  if (!bc) throw ApiError.notFound('Broadcast tidak ditemukan');
+export async function resume(id, user) {
+  await get(id, user); // guard kepemilikan
   await prisma.broadcast.update({ where: { id }, data: { status: 'RUNNING' } });
   // jadwalkan ulang item yang masih QUEUED
   return start(id);
 }
 
-export async function cancel(id) {
+export async function cancel(id, user) {
+  await get(id, user); // guard kepemilikan
   await prisma.broadcast.update({ where: { id }, data: { status: 'CANCELLED', finishedAt: new Date() } });
   await prisma.broadcastItem.updateMany({ where: { broadcastId: id, status: 'QUEUED' }, data: { status: 'FAILED', error: 'Dibatalkan' } });
   socket.emit('broadcast:status', { id, status: 'CANCELLED' });
-  return get(id);
+  return _get(id);
 }
 
-export async function retryFailed(id) {
+export async function retryFailed(id, user) {
+  await get(id, user); // guard kepemilikan
   const failed = await prisma.broadcastItem.findMany({ where: { broadcastId: id, status: 'FAILED' }, select: { id: true } });
   await prisma.broadcastItem.updateMany({
     where: { broadcastId: id, status: 'FAILED' },
@@ -164,8 +169,8 @@ export async function retryFailed(id) {
   return start(id);
 }
 
-export async function list({ skip, limit, status, deviceId, sort, order }) {
-  const where = {};
+export async function list({ skip, limit, status, deviceId, sort, order }, user) {
+  const where = { ...deviceOwnerWhere(user) };
   if (status) where.status = status;
   if (deviceId) where.deviceId = Number(deviceId);
   const [items, total] = await Promise.all([
@@ -179,16 +184,27 @@ export async function list({ skip, limit, status, deviceId, sort, order }) {
   return { items, total };
 }
 
-export async function get(id) {
+// Ambil broadcast tanpa guard kepemilikan (pemakaian internal).
+async function _get(id) {
   const bc = await prisma.broadcast.findUnique({
     where: { id },
-    include: { device: { select: { id: true, name: true } }, template: { select: { id: true, name: true } } },
+    include: {
+      device: { select: { id: true, name: true, ownerId: true } },
+      template: { select: { id: true, name: true } },
+    },
   });
   if (!bc) throw ApiError.notFound('Broadcast tidak ditemukan');
   return bc;
 }
 
-export async function getItems(id, { skip, limit, status }) {
+export async function get(id, user) {
+  const bc = await _get(id);
+  assertDeviceOwned(bc, user, 'Broadcast tidak ditemukan');
+  return bc;
+}
+
+export async function getItems(id, { skip, limit, status }, user) {
+  await get(id, user); // guard kepemilikan broadcast
   const where = { broadcastId: id };
   if (status) where.status = status;
   const [items, total] = await Promise.all([

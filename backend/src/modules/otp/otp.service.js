@@ -21,7 +21,7 @@ function hashCode(code, phone) {
 }
 
 // Kirim OTP via WhatsApp. message default: "Kode OTP Anda: {{code}}"
-export async function send({ deviceId, to, length = 6, purpose, expiresMinutes = 5, template, apiKey, apiKeyId }) {
+export async function send({ deviceId, to, length = 6, purpose, expiresMinutes = 5, template, apiKey, apiKeyId, user }) {
   const phone = normalizePhone(to);
   if (!phone) throw ApiError.badRequest('Nomor tidak valid');
 
@@ -37,8 +37,9 @@ export async function send({ deviceId, to, length = 6, purpose, expiresMinutes =
     code, minutes: expiresMinutes,
   });
 
-  // Kirim lewat pipeline pesan biasa (kena kuota & queue).
-  await messageService.sendText({ deviceId, to: phone, body: text, apiKey, apiKeyId });
+  // Kirim lewat pipeline pesan biasa (kena kuota & queue). user diteruskan agar
+  // via JWT dashboard tidak bisa kirim lewat device milik user lain.
+  await messageService.sendText({ deviceId, to: phone, body: text, apiKey, apiKeyId, user });
 
   const otp = await prisma.otp.create({
     data: {

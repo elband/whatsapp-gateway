@@ -48,10 +48,15 @@ async function main() {
   console.log(`  ✓ ${allPermissions.length} permissions`);
 
   // 2) Roles
+  const superAdminRole = await prisma.role.upsert({
+    where: { name: 'super_admin' },
+    update: { isSystem: true },
+    create: { name: 'super_admin', description: 'Akses penuh semua data & kelola user', isSystem: true },
+  });
   const adminRole = await prisma.role.upsert({
     where: { name: 'admin' },
     update: { isSystem: true },
-    create: { name: 'admin', description: 'Akses penuh sistem', isSystem: true },
+    create: { name: 'admin', description: 'Admin per-user (hanya data miliknya)', isSystem: true },
   });
   const operatorRole = await prisma.role.upsert({
     where: { name: 'operator' },
@@ -64,10 +69,23 @@ async function main() {
     create: { name: 'viewer', description: 'Hanya melihat (read-only)' },
   });
 
-  // admin: semua permission
+  // super_admin: semua permission (lihat & kelola semua data + user/role/apikey/setting)
+  await prisma.rolePermission.deleteMany({ where: { roleId: superAdminRole.id } });
+  await prisma.rolePermission.createMany({
+    data: allPermissions.map((p) => ({ roleId: superAdminRole.id, permissionId: p.id })),
+    skipDuplicates: true,
+  });
+
+  // admin: admin per-user. Punya penuh atas data domainnya sendiri (device/message/
+  // broadcast/contact/template/autoresponder) + read monitoring/log/webhook.
+  // TIDAK punya user.*/role.*/apikey.*/setting.* (khusus super_admin).
+  const adminPerms = allPermissions.filter((p) =>
+    ['device', 'message', 'broadcast', 'contact', 'template', 'autoresponder'].includes(p.group) ||
+    ['monitoring.read', 'log.read', 'webhook.read'].includes(p.name),
+  );
   await prisma.rolePermission.deleteMany({ where: { roleId: adminRole.id } });
   await prisma.rolePermission.createMany({
-    data: allPermissions.map((p) => ({ roleId: adminRole.id, permissionId: p.id })),
+    data: adminPerms.map((p) => ({ roleId: adminRole.id, permissionId: p.id })),
     skipDuplicates: true,
   });
 
@@ -89,18 +107,27 @@ async function main() {
     data: viewerPerms.map((p) => ({ roleId: viewerRole.id, permissionId: p.id })),
     skipDuplicates: true,
   });
-  console.log('  ✓ roles: admin, operator, viewer');
+  console.log('  ✓ roles: super_admin, admin, operator, viewer');
 
-  // 3) Admin user default
+  // 3) Super admin user default
   const email = process.env.SEED_ADMIN_EMAIL || 'admin@example.com';
   const password = process.env.SEED_ADMIN_PASSWORD || 'Admin@12345';
   const name = process.env.SEED_ADMIN_NAME || 'Super Admin';
-  await prisma.user.upsert({
+  const superAdmin = await prisma.user.upsert({
     where: { email },
-    update: { roleId: adminRole.id },
-    create: { name, email, password: await bcrypt.hash(password, 12), roleId: adminRole.id, isActive: true },
+    update: { roleId: superAdminRole.id },
+    create: { name, email, password: await bcrypt.hash(password, 12), roleId: superAdminRole.id, isActive: true },
   });
-  console.log(`  ✓ admin user: ${email} / ${password}`);
+  console.log(`  ✓ super admin user: ${email} / ${password}`);
+
+  // 3b) Backfill kepemilikan data lama -> super admin default (idempotent)
+  const backfill = { where: { ownerId: null }, data: { ownerId: superAdmin.id } };
+  await prisma.device.updateMany(backfill);
+  await prisma.contact.updateMany(backfill);
+  await prisma.contactGroup.updateMany(backfill);
+  await prisma.template.updateMany(backfill);
+  await prisma.autoresponder.updateMany(backfill);
+  console.log('  ✓ backfill ownerId data lama -> super admin');
 
   // 4) Default settings
   const defaults = [

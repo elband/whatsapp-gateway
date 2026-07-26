@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import * as ctrl from './device.controller.js';
 import { authJwt } from '../../middlewares/auth.js';
-import { requirePermission } from '../../middlewares/rbac.js';
+import { requirePermission, requireRole } from '../../middlewares/rbac.js';
 import { validate } from '../../middlewares/validate.js';
-import { createDeviceSchema, updateDeviceSchema, idParam, groupSchema } from './device.validation.js';
+import { createDeviceSchema, updateDeviceSchema, reassignSchema, idParam, groupSchema } from './device.validation.js';
 
 const router = Router();
 router.use(authJwt);
@@ -31,6 +31,7 @@ router.get('/', requirePermission('device.read'), ctrl.list);
 router.post('/', requirePermission('device.create'), validate(createDeviceSchema), ctrl.create);
 router.get('/:id', requirePermission('device.read'), validate(idParam), ctrl.get);
 router.put('/:id', requirePermission('device.update'), validate(idParam), validate(updateDeviceSchema), ctrl.update);
+router.patch('/:id/owner', requireRole('super_admin'), validate(idParam), validate(reassignSchema), ctrl.reassign);
 router.delete('/:id', requirePermission('device.delete'), validate(idParam), ctrl.remove);
 
 router.post('/:id/connect', requirePermission('device.update'), validate(idParam), ctrl.connect);

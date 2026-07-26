@@ -1,9 +1,26 @@
 import { prisma } from '../../config/prisma.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { writeLog } from '../../services/logService.js';
+import { ownerWhere, assertOwned } from '../../utils/ownerScope.js';
 
-export async function list({ skip, limit, search, deviceId }) {
-  const where = {};
+// Pastikan device yang dirujuk (bila ada) milik user.
+async function assertDeviceOwnedById(deviceId, user) {
+  if (deviceId === undefined || deviceId === null) return;
+  const device = await prisma.device.findUnique({ where: { id: Number(deviceId) }, select: { id: true, ownerId: true } });
+  if (!device) throw ApiError.notFound('Device tidak ditemukan');
+  if (!user?.isSuperAdmin && device.ownerId !== user.id) throw ApiError.notFound('Device tidak ditemukan');
+}
+
+// Pastikan template yang dirujuk (bila ada) milik user.
+async function assertTemplateOwnedById(templateId, user) {
+  if (templateId === undefined || templateId === null) return;
+  const tpl = await prisma.template.findUnique({ where: { id: Number(templateId) }, select: { id: true, ownerId: true } });
+  if (!tpl) throw ApiError.notFound('Template tidak ditemukan');
+  if (!user?.isSuperAdmin && tpl.ownerId !== user.id) throw ApiError.notFound('Template tidak ditemukan');
+}
+
+export async function list({ skip, limit, search, deviceId }, user) {
+  const where = { ...ownerWhere(user) };
   if (deviceId) where.deviceId = Number(deviceId);
   if (search) where.OR = [{ name: { contains: search } }, { keyword: { contains: search } }];
   const [items, total] = await Promise.all([
@@ -17,13 +34,15 @@ export async function list({ skip, limit, search, deviceId }) {
   return { items, total };
 }
 
-export async function get(id) {
+export async function get(id, user) {
   const item = await prisma.autoresponder.findUnique({ where: { id } });
-  if (!item) throw ApiError.notFound('Autoresponder tidak ditemukan');
+  assertOwned(item, user, 'Autoresponder tidak ditemukan');
   return item;
 }
 
-export async function create(data, userId) {
+export async function create(data, user) {
+  await assertDeviceOwnedById(data.deviceId, user);
+  await assertTemplateOwnedById(data.templateId, user);
   const item = await prisma.autoresponder.create({
     data: {
       name: data.name,
@@ -34,14 +53,17 @@ export async function create(data, userId) {
       templateId: data.templateId ?? null,
       isActive: data.isActive ?? true,
       priority: data.priority ?? 0,
+      ownerId: user.id,
     },
   });
-  writeLog({ type: 'SYSTEM', action: 'autoresponder.create', message: item.name, userId });
+  writeLog({ type: 'SYSTEM', action: 'autoresponder.create', message: item.name, userId: user?.id });
   return item;
 }
 
-export async function update(id, data, userId) {
-  await get(id);
+export async function update(id, data, user) {
+  await get(id, user);
+  if (data.deviceId !== undefined) await assertDeviceOwnedById(data.deviceId, user);
+  if (data.templateId !== undefined) await assertTemplateOwnedById(data.templateId, user);
   const item = await prisma.autoresponder.update({
     where: { id },
     data: {
@@ -55,14 +77,14 @@ export async function update(id, data, userId) {
       priority: data.priority,
     },
   });
-  writeLog({ type: 'SYSTEM', action: 'autoresponder.update', message: item.name, userId });
+  writeLog({ type: 'SYSTEM', action: 'autoresponder.update', message: item.name, userId: user?.id });
   return item;
 }
 
-export async function remove(id, userId) {
-  await get(id);
+export async function remove(id, user) {
+  await get(id, user);
   await prisma.autoresponder.delete({ where: { id } });
-  writeLog({ type: 'SYSTEM', action: 'autoresponder.delete', userId });
+  writeLog({ type: 'SYSTEM', action: 'autoresponder.delete', userId: user?.id });
 }
 
 export default { list, get, create, update, remove };

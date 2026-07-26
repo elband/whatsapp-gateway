@@ -8,6 +8,7 @@ import { baileysManager } from '../../whatsapp/BaileysManager.js';
 import { parseSort } from '../../utils/listQuery.js';
 import { clusterEnabled } from '../../cluster/clusterConfig.js';
 import { shardForDevice } from '../../cluster/deviceRouter.js';
+import { deviceOwnerWhere, assertDeviceOwned } from '../../utils/ownerScope.js';
 
 let _send = null;
 async function cmd(id, action, payload = {}) {
@@ -15,12 +16,14 @@ async function cmd(id, action, payload = {}) {
   return _send(id, action, payload);
 }
 
-async function resolveDevice(deviceId, apiKey) {
+async function resolveDevice(deviceId, apiKey, user) {
   let id = deviceId ? Number(deviceId) : null;
   if (!id && apiKey?.defaultDeviceId) id = apiKey.defaultDeviceId;
   if (!id) throw ApiError.badRequest('deviceId wajib diisi');
   const device = await prisma.device.findUnique({ where: { id } });
   if (!device) throw ApiError.notFound('Device tidak ditemukan');
+  // Via dashboard JWT: cegah kirim lewat device milik user lain (API key = kredensial mesin, dilewati).
+  if (user && !user.isSuperAdmin && device.ownerId !== user.id) throw ApiError.notFound('Device tidak ditemukan');
   return device;
 }
 
@@ -68,13 +71,13 @@ function relPath(file) {
   return path.relative(uploadRoot, file.path);
 }
 
-export async function sendText({ deviceId, to, body, apiKey, apiKeyId }) {
-  const device = await resolveDevice(deviceId, apiKey);
+export async function sendText({ deviceId, to, body, apiKey, apiKeyId, user }) {
+  const device = await resolveDevice(deviceId, apiKey, user);
   return queueOutbound({ device, to, type: 'TEXT', body, apiKeyId });
 }
 
-export async function sendMedia({ deviceId, to, type, caption, file, apiKey, apiKeyId }) {
-  const device = await resolveDevice(deviceId, apiKey);
+export async function sendMedia({ deviceId, to, type, caption, file, apiKey, apiKeyId, user }) {
+  const device = await resolveDevice(deviceId, apiKey, user);
   if (!file) throw ApiError.badRequest('File media wajib diunggah');
   const attachment = {
     fileName: file.originalname,
@@ -85,32 +88,32 @@ export async function sendMedia({ deviceId, to, type, caption, file, apiKey, api
   return queueOutbound({ device, to, type, caption, attachment, apiKeyId });
 }
 
-export async function sendLocation({ deviceId, to, latitude, longitude, name, address, apiKey, apiKeyId }) {
-  const device = await resolveDevice(deviceId, apiKey);
+export async function sendLocation({ deviceId, to, latitude, longitude, name, address, apiKey, apiKeyId, user }) {
+  const device = await resolveDevice(deviceId, apiKey, user);
   return queueOutbound({
     device, to, type: 'LOCATION', apiKeyId,
     meta: { location: { latitude, longitude, name, address } },
   });
 }
 
-export async function sendContact({ deviceId, to, contactName, contactPhone, apiKey, apiKeyId }) {
-  const device = await resolveDevice(deviceId, apiKey);
+export async function sendContact({ deviceId, to, contactName, contactPhone, apiKey, apiKeyId, user }) {
+  const device = await resolveDevice(deviceId, apiKey, user);
   return queueOutbound({
     device, to, type: 'CONTACT', apiKeyId,
     meta: { contact: { name: contactName, phone: contactPhone } },
   });
 }
 
-export async function sendButtons({ deviceId, to, body, footer, buttons, apiKey, apiKeyId }) {
-  const device = await resolveDevice(deviceId, apiKey);
+export async function sendButtons({ deviceId, to, body, footer, buttons, apiKey, apiKeyId, user }) {
+  const device = await resolveDevice(deviceId, apiKey, user);
   return queueOutbound({
     device, to, type: 'BUTTON', body, apiKeyId,
     meta: { buttons: { items: buttons, footer } },
   });
 }
 
-export async function sendList({ deviceId, to, body, footer, title, buttonText, sections, apiKey, apiKeyId }) {
-  const device = await resolveDevice(deviceId, apiKey);
+export async function sendList({ deviceId, to, body, footer, title, buttonText, sections, apiKey, apiKeyId, user }) {
+  const device = await resolveDevice(deviceId, apiKey, user);
   return queueOutbound({
     device, to, type: 'LIST', body, apiKeyId,
     meta: { list: { text: body, footer, title, buttonText, sections } },
@@ -118,8 +121,8 @@ export async function sendList({ deviceId, to, body, footer, title, buttonText, 
 }
 
 // Cek satu/banyak nomor apakah terdaftar di WhatsApp.
-export async function checkNumbers({ deviceId, numbers, apiKey }) {
-  const device = await resolveDevice(deviceId, apiKey);
+export async function checkNumbers({ deviceId, numbers, apiKey, user }) {
+  const device = await resolveDevice(deviceId, apiKey, user);
   if (!clusterEnabled && !baileysManager.isConnected(device.id)) {
     throw ApiError.badRequest('Device tidak terhubung');
   }
@@ -144,8 +147,8 @@ export async function checkNumbers({ deviceId, numbers, apiKey }) {
   return results;
 }
 
-export async function list({ skip, limit, deviceId, direction, status, type, search, from, to, sort, order }) {
-  const where = {};
+export async function list({ skip, limit, deviceId, direction, status, type, search, from, to, sort, order }, user) {
+  const where = { ...deviceOwnerWhere(user) };
   if (deviceId) where.deviceId = Number(deviceId);
   if (direction) where.direction = direction;
   if (status) where.status = status;
@@ -168,14 +171,17 @@ export async function list({ skip, limit, deviceId, direction, status, type, sea
   return { items, total };
 }
 
-export async function get(id) {
-  const msg = await prisma.message.findUnique({ where: { id }, include: { attachments: true } });
-  if (!msg) throw ApiError.notFound('Pesan tidak ditemukan');
+export async function get(id, user) {
+  const msg = await prisma.message.findUnique({
+    where: { id },
+    include: { attachments: true, device: { select: { ownerId: true } } },
+  });
+  assertDeviceOwned(msg, user, 'Pesan tidak ditemukan');
   return msg;
 }
 
-export async function resend(id) {
-  const msg = await get(id);
+export async function resend(id, user) {
+  const msg = await get(id, user);
   await prisma.message.update({ where: { id }, data: { status: 'QUEUED', error: null } });
   await enqueueSingle(id, await shardForDevice(msg.deviceId));
   return msg;

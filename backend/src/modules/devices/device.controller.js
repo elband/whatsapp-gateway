@@ -4,37 +4,41 @@ import { ok, created, paginated, getPagination } from '../../utils/response.js';
 
 export const list = catchAsync(async (req, res) => {
   const { page, limit, skip } = getPagination(req.query);
-  const { items, total } = await service.list({ ...req.query, skip, limit });
+  const { items, total } = await service.list({ ...req.query, skip, limit }, req.user);
   return paginated(res, items, { page, limit, total });
 });
 
-export const get = catchAsync(async (req, res) => ok(res, await service.get(Number(req.params.id))));
+export const get = catchAsync(async (req, res) => ok(res, await service.get(Number(req.params.id), req.user)));
 
 export const create = catchAsync(async (req, res) =>
-  created(res, await service.create(req.body, req.user.id), 'Device dibuat, scan QR untuk menghubungkan'),
+  created(res, await service.create(req.body, req.user), 'Device dibuat, scan QR untuk menghubungkan'),
 );
 
 export const update = catchAsync(async (req, res) =>
-  ok(res, await service.update(Number(req.params.id), req.body, req.user.id), 'Device diperbarui'),
+  ok(res, await service.update(Number(req.params.id), req.body, req.user), 'Device diperbarui'),
+);
+
+export const reassign = catchAsync(async (req, res) =>
+  ok(res, await service.reassign(Number(req.params.id), req.body.ownerId, req.user), 'Kepemilikan device dipindahkan'),
 );
 
 export const remove = catchAsync(async (req, res) => {
-  await service.remove(Number(req.params.id), req.user.id);
+  await service.remove(Number(req.params.id), req.user);
   return ok(res, null, 'Device dihapus');
 });
 
 export const connect = catchAsync(async (req, res) =>
-  ok(res, await service.connect(Number(req.params.id)), 'Menghubungkan device'),
+  ok(res, await service.connect(Number(req.params.id), req.user), 'Menghubungkan device'),
 );
 
-export const qr = catchAsync(async (req, res) => ok(res, await service.getQr(Number(req.params.id))));
+export const qr = catchAsync(async (req, res) => ok(res, await service.getQr(Number(req.params.id), req.user)));
 
 export const logout = catchAsync(async (req, res) =>
-  ok(res, await service.logout(Number(req.params.id), req.user.id), 'Device logout'),
+  ok(res, await service.logout(Number(req.params.id), req.user), 'Device logout'),
 );
 
 export const restart = catchAsync(async (req, res) =>
-  ok(res, await service.restart(Number(req.params.id)), 'Device direstart'),
+  ok(res, await service.restart(Number(req.params.id), req.user), 'Device direstart'),
 );
 
 // groups

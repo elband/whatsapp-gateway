@@ -34,6 +34,7 @@ export const authJwt = catchAsync(async (req, res, next) => {
     email: user.email,
     roleId: user.roleId,
     role: user.role.name,
+    isSuperAdmin: user.role.name === 'super_admin',
     permissions: user.role.rolePermissions.map((rp) => rp.permission.name),
   };
   req.authType = 'jwt';

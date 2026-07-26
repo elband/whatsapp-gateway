@@ -22,6 +22,12 @@ export const updateDeviceSchema = {
   }),
 };
 
+export const reassignSchema = {
+  body: Joi.object({
+    ownerId: Joi.number().integer().required(),
+  }),
+};
+
 export const idParam = {
   params: Joi.object({ id: Joi.number().integer().required() }),
 };

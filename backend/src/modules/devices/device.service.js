@@ -6,6 +6,7 @@ import { writeLog } from '../../services/logService.js';
 import { parseSort } from '../../utils/listQuery.js';
 import { clusterEnabled } from '../../cluster/clusterConfig.js';
 import { assignShard } from '../../cluster/deviceRouter.js';
+import { ownerWhere, assertOwned } from '../../utils/ownerScope.js';
 
 // Di mode cluster, aksi device dikirim ke WA-worker pemilik via command bus.
 // Lazy import agar mode 'all' tidak membuka koneksi Redis tambahan.
@@ -26,8 +27,8 @@ const dRestart = async (id) => {
   return baileysManager.startDevice(id);
 };
 
-export async function list({ skip, limit, search, status, groupId, sort, order }) {
-  const where = {};
+export async function list({ skip, limit, search, status, groupId, sort, order }, user) {
+  const where = { ...ownerWhere(user) };
   if (status) where.status = status;
   if (groupId) where.groupId = Number(groupId);
   if (search) where.OR = [{ name: { contains: search } }, { phoneNumber: { contains: search } }];
@@ -38,7 +39,7 @@ export async function list({ skip, limit, search, status, groupId, sort, order }
       skip,
       take: limit,
       orderBy: parseSort({ sort, order }, ['createdAt', 'name', 'status', 'lastSeenAt']),
-      include: { group: true },
+      include: { group: true, owner: { select: { id: true, name: true } } },
     }),
     prisma.device.count({ where }),
   ]);
@@ -46,20 +47,24 @@ export async function list({ skip, limit, search, status, groupId, sort, order }
   return { items: withRuntime, total };
 }
 
-export async function get(id) {
-  const device = await prisma.device.findUnique({ where: { id }, include: { group: true } });
-  if (!device) throw ApiError.notFound('Device tidak ditemukan');
+export async function get(id, user) {
+  const device = await prisma.device.findUnique({
+    where: { id },
+    include: { group: true, owner: { select: { id: true, name: true } } },
+  });
+  assertOwned(device, user, 'Device tidak ditemukan');
   return { ...device, connected: isConnected(device) };
 }
 
-export async function create(data, userId) {
+export async function create(data, user) {
+  const userId = user?.id ?? null;
   const shardId = await assignShard(); // F3: sticky assignment device → shard
   const device = await prisma.device.create({
     data: {
       name: data.name,
       deviceId: nanoid(16),
       groupId: data.groupId || null,
-      ownerId: userId || null,
+      ownerId: userId,
       webhookUrl: data.webhookUrl || null,
       webhookEvents: data.webhookEvents || null,
       autoReconnect: data.autoReconnect ?? true,
@@ -73,8 +78,8 @@ export async function create(data, userId) {
   return device;
 }
 
-export async function update(id, data, userId) {
-  await get(id);
+export async function update(id, data, user) {
+  await get(id, user);
   const device = await prisma.device.update({
     where: { id },
     data: {
@@ -85,27 +90,44 @@ export async function update(id, data, userId) {
       autoReconnect: data.autoReconnect,
       quota: data.quota,
       quotaUsed: data.quotaUsed,
+      // reassign kepemilikan hanya boleh oleh super admin
+      ...(user?.isSuperAdmin && data.ownerId !== undefined ? { ownerId: data.ownerId } : {}),
     },
   });
-  writeLog({ type: 'DEVICE', action: 'device.update', message: device.name, userId, deviceId: id });
+  writeLog({ type: 'DEVICE', action: 'device.update', message: device.name, userId: user?.id, deviceId: id });
   return device;
 }
 
-export async function remove(id, userId) {
-  await get(id);
+// Reassign kepemilikan device (khusus super admin). Memindahkan device otomatis
+// memindahkan Message/Broadcast/Chat/OTP karena diisolasi lewat relasi device.
+export async function reassign(id, ownerId, user) {
+  await get(id, user);
+  const target = await prisma.user.findUnique({ where: { id: Number(ownerId) } });
+  if (!target || !target.isActive) throw ApiError.badRequest('User tujuan tidak valid atau tidak aktif');
+  const device = await prisma.device.update({
+    where: { id },
+    data: { ownerId: target.id },
+    include: { owner: { select: { id: true, name: true } } },
+  });
+  writeLog({ type: 'DEVICE', action: 'device.reassign', message: `${device.name} -> ${target.name}`, userId: user?.id, deviceId: id });
+  return device;
+}
+
+export async function remove(id, user) {
+  await get(id, user);
   await dLogout(id).catch(() => {});
   await prisma.device.delete({ where: { id } });
-  writeLog({ type: 'DEVICE', action: 'device.delete', userId, deviceId: id });
+  writeLog({ type: 'DEVICE', action: 'device.delete', userId: user?.id, deviceId: id });
 }
 
-export async function connect(id) {
-  await get(id);
+export async function connect(id, user) {
+  await get(id, user);
   await dConnect(id);
-  return get(id);
+  return get(id, user);
 }
 
-export async function getQr(id) {
-  const device = await get(id);
+export async function getQr(id, user) {
+  const device = await get(id, user);
   if (device.status === 'CONNECTED') return { status: 'CONNECTED', qr: null };
 
   if (clusterEnabled) {
@@ -120,17 +142,17 @@ export async function getQr(id) {
   return { status: device.status, qr: device.qr };
 }
 
-export async function logout(id, userId) {
-  await get(id);
+export async function logout(id, user) {
+  await get(id, user);
   await dLogout(id);
-  writeLog({ type: 'DEVICE', action: 'device.logout', userId, deviceId: id });
-  return get(id);
+  writeLog({ type: 'DEVICE', action: 'device.logout', userId: user?.id, deviceId: id });
+  return get(id, user);
 }
 
-export async function restart(id) {
-  await get(id);
+export async function restart(id, user) {
+  await get(id, user);
   await dRestart(id);
-  return get(id);
+  return get(id, user);
 }
 
 // ---- Device groups ----
@@ -145,6 +167,6 @@ export async function removeGroup(id) {
 }
 
 export default {
-  list, get, create, update, remove, connect, getQr, logout, restart,
+  list, get, create, update, reassign, remove, connect, getQr, logout, restart,
   listGroups, createGroup, removeGroup,
 };

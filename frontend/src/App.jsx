@@ -1,6 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import ProtectedRoute from './components/ProtectedRoute'
+import ProtectedRoute, { RequirePermission } from './components/ProtectedRoute'
 import Layout from './components/Layout'
 import { PageSpinner } from './components/Spinner'
 import api from './lib/api'
@@ -74,11 +74,11 @@ export default function App() {
         <Route path="/templates" element={<Templates />} />
         <Route path="/webhooks" element={<Webhooks />} />
         <Route path="/logs" element={<Logs />} />
-        <Route path="/users" element={<Users />} />
-        <Route path="/roles" element={<Roles />} />
-        <Route path="/api-keys" element={<ApiKeys />} />
+        <Route path="/users" element={<RequirePermission permission="user.read"><Users /></RequirePermission>} />
+        <Route path="/roles" element={<RequirePermission permission="role.read"><Roles /></RequirePermission>} />
+        <Route path="/api-keys" element={<RequirePermission permission="apikey.read"><ApiKeys /></RequirePermission>} />
         <Route path="/api-docs" element={<ApiDocs />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/settings" element={<RequirePermission permission="setting.read"><Settings /></RequirePermission>} />
       </Route>
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />

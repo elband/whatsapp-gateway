@@ -4,11 +4,13 @@ import { parseSort } from '../../utils/listQuery.js';
 
 const userSelect = { id: true, name: true, email: true };
 
-export async function list({ skip, limit, type, level, action, userId, from, to, search, sort, order }) {
+export async function list({ skip, limit, type, level, action, userId, from, to, search, sort, order }, user) {
   const where = {};
+  // Admin biasa hanya melihat log miliknya; super admin bebas memfilter userId.
+  if (user && !user.isSuperAdmin) where.userId = user.id;
+  else if (userId) where.userId = Number(userId);
   if (type) where.type = type;
   if (level) where.level = level;
-  if (userId) where.userId = Number(userId);
   if (action) where.action = { contains: action };
   if (search) where.message = { contains: search };
   if (from || to) {

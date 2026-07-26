@@ -10,3 +10,13 @@ export default function ProtectedRoute({ children }) {
   }
   return children
 }
+
+// Gerbang berbasis permission untuk halaman khusus (mis. super admin). Bila user
+// tidak memiliki permission yang dibutuhkan, alihkan ke dashboard.
+export function RequirePermission({ permission, children }) {
+  const hasPermission = useAuth((s) => s.hasPermission)
+  if (permission && !hasPermission(permission)) {
+    return <Navigate to="/dashboard" replace />
+  }
+  return children
+}
