@@ -307,6 +307,25 @@ class BaileysManager {
     return sock.sendMessage(jid, content, options);
   }
 
+  // Tampilkan "sedang mengetik…" (atau "merekam audio…") ke penerima selama `ms`,
+  // meniru manusia sebelum pesan terkirim. Kegagalan presence tidak menggagalkan kirim.
+  async simulateTyping(devicePk, jid, ms, { recording = false } = {}) {
+    const sock = this.sockets.get(devicePk);
+    if (!sock?.user || ms <= 0) return;
+    try {
+      await sock.presenceSubscribe(jid);
+      await sock.sendPresenceUpdate(recording ? 'recording' : 'composing', jid);
+    } catch (err) {
+      logger.debug({ err: err.message, devicePk }, 'Presence composing gagal');
+    }
+    await new Promise((r) => setTimeout(r, ms));
+    try {
+      await sock.sendPresenceUpdate('paused', jid);
+    } catch {
+      /* abaikan */
+    }
+  }
+
   // Cek apakah nomor terdaftar di WhatsApp.
   async checkNumber(devicePk, jid) {
     const sock = this.sockets.get(devicePk);

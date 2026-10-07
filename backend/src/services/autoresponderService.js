@@ -64,7 +64,7 @@ export async function runAutoreply({ device, fromPhone, text, pushName }) {
       status: 'QUEUED',
       to: fromPhone,
       body,
-      meta: { autoresponderId: matched.id },
+      meta: { autoresponderId: matched.id, kind: 'autoreply' },
     },
   });
   await enqueueSingle(message.id, await shardForDevice(device.id));

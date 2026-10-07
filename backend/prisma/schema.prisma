@@ -155,6 +155,8 @@ model Device {
   autoReconnect Boolean     @default(true)
   quota        Int          @default(0) // 0 = unlimited (kuota pesan keluar)
   quotaUsed    Int          @default(0)
+  // Tier harian ala Meta: maks penerima unik per hari (0 = tanpa batas). Diatur super admin.
+  dailyRecipientLimit Int   @default(250)
   shardId      Int?         // F3: WA-worker shard pemilik device (sticky assignment)
   meta         Json?
   createdAt    DateTime     @default(now())

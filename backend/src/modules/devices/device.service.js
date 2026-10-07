@@ -7,6 +7,7 @@ import { parseSort } from '../../utils/listQuery.js';
 import { clusterEnabled } from '../../cluster/clusterConfig.js';
 import { assignShard } from '../../cluster/deviceRouter.js';
 import { ownerWhere, assertOwned } from '../../utils/ownerScope.js';
+import { dailyUsage } from '../../services/sendLimiter.js';
 
 // Di mode cluster, aksi device dikirim ke WA-worker pemilik via command bus.
 // Lazy import agar mode 'all' tidak membuka koneksi Redis tambahan.
@@ -43,7 +44,8 @@ export async function list({ skip, limit, search, status, groupId, sort, order }
     }),
     prisma.device.count({ where }),
   ]);
-  const withRuntime = items.map((d) => ({ ...d, connected: isConnected(d) }));
+  const used = await dailyUsage(items.map((d) => d.id));
+  const withRuntime = items.map((d) => ({ ...d, connected: isConnected(d), dailyRecipientsUsed: used[d.id] || 0 }));
   return { items: withRuntime, total };
 }
 
@@ -92,6 +94,8 @@ export async function update(id, data, user) {
       quotaUsed: data.quotaUsed,
       // reassign kepemilikan hanya boleh oleh super admin
       ...(user?.isSuperAdmin && data.ownerId !== undefined ? { ownerId: data.ownerId } : {}),
+      // tier harian anti-ban hanya boleh diubah super admin (cegah pemilik menaikkan sendiri)
+      ...(user?.isSuperAdmin && data.dailyRecipientLimit !== undefined ? { dailyRecipientLimit: data.dailyRecipientLimit } : {}),
     },
   });
   writeLog({ type: 'DEVICE', action: 'device.update', message: device.name, userId: user?.id, deviceId: id });

@@ -64,10 +64,25 @@ export const env = {
     minDelayMs: toInt(process.env.BROADCAST_MIN_DELAY_MS, 3000),
     maxDelayMs: toInt(process.env.BROADCAST_MAX_DELAY_MS, 8000),
     // Anti-ban: setiap `batchSize` pesan, sisipkan istirahat panjang acak
-    // (batchRestMin..Max) sebelum lanjut. batchSize <= 0 menonaktifkan fitur.
-    batchSize: toInt(process.env.BROADCAST_BATCH_SIZE, 30),
-    batchRestMinMs: toInt(process.env.BROADCAST_BATCH_REST_MIN_MS, 180000), // 3 menit
-    batchRestMaxMs: toInt(process.env.BROADCAST_BATCH_REST_MAX_MS, 600000), // 10 menit
+    // (batchRestMin..Max) sebelum lanjut. Mengikuti batas forward WhatsApp,
+    // batchSize dibatasi 1..5 (lihat services/sendPolicy.js).
+    batchSize: toInt(process.env.BROADCAST_BATCH_SIZE, 5),
+    batchRestMinMs: toInt(process.env.BROADCAST_BATCH_REST_MIN_MS, 60000), // 1 menit
+    batchRestMaxMs: toInt(process.env.BROADCAST_BATCH_REST_MAX_MS, 180000), // 3 menit
+  },
+
+  // Aturan pengiriman anti-ban untuk SEMUA pesan keluar (lihat services/sendPolicy.js).
+  sendPolicy: {
+    // Simulasi mengetik: jeda = jumlah karakter × msPerChar, dibatasi min..max.
+    typingMsPerChar: toInt(process.env.TYPING_MS_PER_CHAR, 150),
+    typingMinMs: toInt(process.env.TYPING_MIN_MS, 2000),
+    typingMaxMs: toInt(process.env.TYPING_MAX_MS, 20000),
+    otpTypingMaxMs: toInt(process.env.OTP_TYPING_MAX_MS, 3000), // OTP tetap cepat
+    // Jeda tambahan antar pesan tunggal (API/dashboard) setelah jeda mengetik.
+    gapMinMs: toInt(process.env.SEND_GAP_MIN_MS, 2000),
+    gapMaxMs: toInt(process.env.SEND_GAP_MAX_MS, 5000),
+    // Zona waktu pergantian hari untuk tier harian penerima unik.
+    timeZone: process.env.SEND_DAY_TZ || 'Asia/Jakarta',
   },
 
   // Concurrency worker queue (tunable; mitigasi parsial throughput - H5).

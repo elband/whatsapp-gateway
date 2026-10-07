@@ -11,11 +11,16 @@ export const apiKeyAuth = catchAsync(async (req, res, next) => {
   if (!raw) throw ApiError.unauthorized('API Key tidak ditemukan (header X-API-Key)');
 
   const prefix = String(raw).split('.')[0];
-  const record = await prisma.apiKey.findUnique({ where: { keyPrefix: prefix } });
+  const record = await prisma.apiKey.findUnique({
+    where: { keyPrefix: prefix },
+    include: { createdBy: { select: { id: true, isActive: true, role: { select: { name: true } } } } },
+  });
   if (!record || !record.isActive) throw ApiError.unauthorized('API Key tidak valid');
   if (record.expiresAt && record.expiresAt < new Date())
     throw ApiError.unauthorized('API Key kedaluwarsa');
   if (record.keyHash !== sha256(String(raw))) throw ApiError.unauthorized('API Key tidak valid');
+  // Key mewarisi kepemilikan pembuatnya: tanpa pemilik aktif (user dihapus/nonaktif) = ditolak.
+  if (!record.createdBy || !record.createdBy.isActive) throw ApiError.unauthorized('API Key tidak valid');
 
   // update lastUsedAt tanpa menunggu
   prisma.apiKey
@@ -28,6 +33,8 @@ export const apiKeyAuth = catchAsync(async (req, res, next) => {
     scopes: record.scopes || [],
     defaultDeviceId: record.defaultDeviceId,
     rateLimit: record.rateLimit,
+    // Pemilik key — dipakai layer service untuk isolasi device (lihat utils/ownerScope.js).
+    owner: { id: record.createdBy.id, isSuperAdmin: record.createdBy.role.name === 'super_admin' },
   };
   req.authType = 'apikey';
   next();

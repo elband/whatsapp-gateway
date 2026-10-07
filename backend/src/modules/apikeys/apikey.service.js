@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { sha256, randomToken } from '../../utils/crypto.js';
 import { writeLog } from '../../services/logService.js';
+import { ownerWhere } from '../../utils/ownerScope.js';
 
 // Field aman yang boleh dikembalikan (tanpa keyHash).
 const safeSelect = {
@@ -30,8 +31,21 @@ function generateKey() {
   return { keyPrefix, fullKey, keyHash: sha256(fullKey) };
 }
 
-export async function list({ skip, limit, search }) {
-  const where = {};
+// Isolasi multi-user: API key dimiliki pembuatnya (createdById). Super admin
+// melihat semua; role lain hanya key buatannya sendiri.
+function keyOwnerWhere(user) {
+  return user?.isSuperAdmin ? {} : { createdById: user.id };
+}
+
+// defaultDeviceId hanya boleh device milik user (cegah key dipin ke device orang lain).
+async function assertDeviceUsable(deviceId, user) {
+  if (deviceId === undefined || deviceId === null) return;
+  const device = await prisma.device.findFirst({ where: { id: deviceId, ...ownerWhere(user) }, select: { id: true } });
+  if (!device) throw ApiError.badRequest('Default device tidak ditemukan');
+}
+
+export async function list({ skip, limit, search }, user) {
+  const where = { ...keyOwnerWhere(user) };
   if (search) where.OR = [{ name: { contains: search } }, { keyPrefix: { contains: search } }];
 
   const [items, total] = await Promise.all([
@@ -47,13 +61,16 @@ export async function list({ skip, limit, search }) {
   return { items, total };
 }
 
-export async function get(id) {
-  const apiKey = await prisma.apiKey.findUnique({ where: { id }, select: safeSelect });
+export async function get(id, user) {
+  // 404 (bukan 403) untuk key milik user lain — anti-IDOR.
+  const apiKey = await prisma.apiKey.findFirst({ where: { id, ...keyOwnerWhere(user) }, select: safeSelect });
   if (!apiKey) throw ApiError.notFound('API key tidak ditemukan');
   return apiKey;
 }
 
-export async function create(data, actorId) {
+export async function create(data, user) {
+  const actorId = user.id;
+  await assertDeviceUsable(data.defaultDeviceId, user);
   const { keyPrefix, fullKey, keyHash } = generateKey();
   const record = await prisma.apiKey.create({
     data: {
@@ -73,8 +90,10 @@ export async function create(data, actorId) {
   return { ...record, key: fullKey };
 }
 
-export async function update(id, data, actorId) {
-  await get(id);
+export async function update(id, data, user) {
+  const actorId = user.id;
+  await get(id, user);
+  await assertDeviceUsable(data.defaultDeviceId, user);
   const record = await prisma.apiKey.update({
     where: { id },
     data: {
@@ -91,14 +110,16 @@ export async function update(id, data, actorId) {
   return record;
 }
 
-export async function remove(id, actorId) {
-  await get(id);
+export async function remove(id, user) {
+  const actorId = user.id;
+  await get(id, user);
   await prisma.apiKey.delete({ where: { id } });
   writeLog({ type: 'SYSTEM', action: 'apikey.delete', userId: actorId, apiKeyId: id });
 }
 
-export async function regenerate(id, actorId) {
-  await get(id);
+export async function regenerate(id, user) {
+  const actorId = user.id;
+  await get(id, user);
   const { keyPrefix, fullKey, keyHash } = generateKey();
   const record = await prisma.apiKey.update({
     where: { id },

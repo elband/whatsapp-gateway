@@ -11,6 +11,9 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { fmtDate } from '../lib/utils'
 import { onSocket } from '../lib/socket'
 
+// Aturan daftar siaran WhatsApp: maks 256 penerima per broadcast (divalidasi juga di backend).
+const MAX_RECIPIENTS = 256
+
 export default function Broadcast() {
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
@@ -192,9 +195,9 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
     caption: '',
     minDelayMs: 3000,
     maxDelayMs: 8000,
-    batchSize: 30,
-    batchRestMinMs: 180000,
-    batchRestMaxMs: 600000,
+    batchSize: 5,
+    batchRestMinMs: 60000,
+    batchRestMaxMs: 180000,
     scheduledAt: '',
     recipientsText: '',
     contactGroupId: '',
@@ -219,9 +222,13 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
       .catch(() => {})
   }, [open])
 
+  const manualCount = form.recipientsText.split('\n').filter((l) => l.trim()).length
+
   const save = async () => {
     if (!form.name.trim()) return toast.error('Name is required')
     if (!form.deviceId) return toast.error('Select a device')
+    if (recipientMode === 'manual' && manualCount > MAX_RECIPIENTS)
+      return toast.error(`Maksimal ${MAX_RECIPIENTS} penerima per broadcast (saat ini ${manualCount})`)
     setSaving(true)
     try {
       const recipients =
@@ -370,13 +377,16 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
         </div>
 
         <div className="sm:col-span-2 mt-1 border-t border-slate-100 pt-3">
-          <p className="text-sm font-semibold text-slate-700">Anti-ban: istirahat per-batch</p>
-          <p className="text-xs text-slate-400">Setiap sejumlah pesan, broadcast berhenti sejenak sebelum lanjut — meniru pola manusia agar nomor lebih aman.</p>
+          <p className="text-sm font-semibold text-slate-700">Anti-ban: kelompok kirim & istirahat</p>
+          <p className="text-xs text-slate-400">
+            Mengikuti batas forward WhatsApp: pesan dikirim per kelompok maks 5 penerima, satu per satu dengan
+            status "sedang mengetik…" selama ±150 ms per karakter pesan (2–20 dtk), lalu istirahat sebelum kelompok berikutnya.
+            Penerima di atas batas harian device ditunda ke hari berikutnya.
+          </p>
         </div>
         <div>
-          <label className="label">Ukuran batch (pesan)</label>
-          <input type="number" min="0" className="input" value={form.batchSize} onChange={(e) => setForm({ ...form, batchSize: e.target.value })} />
-          <p className="mt-1 text-xs text-slate-400">0 = matikan istirahat batch</p>
+          <label className="label">Ukuran kelompok (1–5 pesan)</label>
+          <input type="number" min="1" max="5" className="input" value={form.batchSize} onChange={(e) => setForm({ ...form, batchSize: e.target.value })} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -402,7 +412,9 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
         </div>
 
         <div className="sm:col-span-2">
-          <label className="label">Recipients</label>
+          <label className="label">
+            Recipients <span className="font-normal text-slate-400">(maks {MAX_RECIPIENTS})</span>
+          </label>
           <div className="mb-2 flex gap-2">
             <button
               type="button"
@@ -420,12 +432,17 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
             </button>
           </div>
           {recipientMode === 'manual' ? (
-            <textarea
-              className="input min-h-[90px] font-mono text-xs"
-              placeholder={'One per line: phone,name\n6281234567890,John\n6289876543210,Jane'}
-              value={form.recipientsText}
-              onChange={(e) => setForm({ ...form, recipientsText: e.target.value })}
-            />
+            <>
+              <textarea
+                className="input min-h-[90px] font-mono text-xs"
+                placeholder={'One per line: phone,name\n6281234567890,John\n6289876543210,Jane'}
+                value={form.recipientsText}
+                onChange={(e) => setForm({ ...form, recipientsText: e.target.value })}
+              />
+              <p className={`mt-1 text-xs ${manualCount > MAX_RECIPIENTS ? 'text-red-500' : 'text-slate-400'}`}>
+                {manualCount} / {MAX_RECIPIENTS} penerima
+              </p>
+            </>
           ) : (
             <select className="input" value={form.contactGroupId} onChange={(e) => setForm({ ...form, contactGroupId: e.target.value })}>
               <option value="">Select group</option>

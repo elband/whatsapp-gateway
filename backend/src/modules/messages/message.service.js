@@ -9,6 +9,8 @@ import { parseSort } from '../../utils/listQuery.js';
 import { clusterEnabled } from '../../cluster/clusterConfig.js';
 import { shardForDevice } from '../../cluster/deviceRouter.js';
 import { deviceOwnerWhere, assertDeviceOwned } from '../../utils/ownerScope.js';
+import { DAILY_EXEMPT_KINDS } from '../../services/sendPolicy.js';
+import { claimDailyRecipient } from '../../services/sendLimiter.js';
 
 let _send = null;
 async function cmd(id, action, payload = {}) {
@@ -22,15 +24,29 @@ async function resolveDevice(deviceId, apiKey, user) {
   if (!id) throw ApiError.badRequest('deviceId wajib diisi');
   const device = await prisma.device.findUnique({ where: { id } });
   if (!device) throw ApiError.notFound('Device tidak ditemukan');
-  // Via dashboard JWT: cegah kirim lewat device milik user lain (API key = kredensial mesin, dilewati).
-  if (user && !user.isSuperAdmin && device.ownerId !== user.id) throw ApiError.notFound('Device tidak ditemukan');
+  // Cegah kirim lewat device milik user lain. Via JWT = user login; via API key =
+  // pemilik (pembuat) key. Tanpa principal sama sekali = ditolak (fail-closed).
+  const principal = user || apiKey?.owner;
+  if (!principal || (!principal.isSuperAdmin && device.ownerId !== principal.id)) {
+    throw ApiError.notFound('Device tidak ditemukan');
+  }
   return device;
 }
 
 // Buat record outbound + masukkan ke queue.
-async function queueOutbound({ device, to, type, body, caption, attachment, meta, apiKeyId }) {
+// kind (disimpan di meta.kind): 'otp' | 'chat' | undefined — menentukan aturan
+// anti-ban yang berlaku (lihat services/sendPolicy.js). Tidak pernah dari input klien.
+async function queueOutbound({ device, to, type, body, caption, attachment, meta, apiKeyId, kind }) {
   const phone = normalizePhone(to);
   if (!phone) throw ApiError.badRequest(`Nomor tidak valid: ${to}`);
+
+  // Tier harian penerima unik device (ala tier Meta). OTP & balasan inbox dikecualikan.
+  if (!DAILY_EXEMPT_KINDS.includes(kind)) {
+    const daily = await claimDailyRecipient(device.id, phone, device.dailyRecipientLimit);
+    if (!daily.allowed) {
+      throw ApiError.tooMany(`Batas harian ${daily.limit} penerima unik untuk device "${device.name}" tercapai. Coba lagi besok.`);
+    }
+  }
 
   // M2: kuota + pembuatan pesan dalam SATU transaksi.
   // increment kuota memakai updateMany ber-kondisi (atomic, anti-race).
@@ -54,7 +70,7 @@ async function queueOutbound({ device, to, type, body, caption, attachment, meta
         body: body || null,
         caption: caption || null,
         apiKeyId: apiKeyId || null,
-        meta: meta || null,
+        meta: kind ? { ...(meta || {}), kind } : meta || null,
         attachments: attachment ? { create: attachment } : undefined,
       },
       include: { attachments: true },
@@ -71,9 +87,9 @@ function relPath(file) {
   return path.relative(uploadRoot, file.path);
 }
 
-export async function sendText({ deviceId, to, body, apiKey, apiKeyId, user }) {
+export async function sendText({ deviceId, to, body, apiKey, apiKeyId, user, kind }) {
   const device = await resolveDevice(deviceId, apiKey, user);
-  return queueOutbound({ device, to, type: 'TEXT', body, apiKeyId });
+  return queueOutbound({ device, to, type: 'TEXT', body, apiKeyId, kind });
 }
 
 export async function sendMedia({ deviceId, to, type, caption, file, apiKey, apiKeyId, user }) {

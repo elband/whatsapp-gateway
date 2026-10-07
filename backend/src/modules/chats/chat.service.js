@@ -83,7 +83,7 @@ export async function markSeen({ deviceId, phone }, user) {
 }
 
 export async function reply({ deviceId, phone, body }, user) {
-  return messageService.sendText({ deviceId, to: phone, body, user });
+  return messageService.sendText({ deviceId, to: phone, body, user, kind: 'chat' });
 }
 
 export default { conversations, thread, markSeen, reply };

@@ -20,6 +20,9 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import EmptyState from '../components/EmptyState'
 import Spinner, { PageSpinner } from '../components/Spinner'
 import { onSocket } from '../lib/socket'
+
+// Tier harian penerima unik per device (meniru tier portofolio Meta); 0 = tanpa batas.
+const DAILY_TIERS = [250, 2000, 10000, 100000, 0]
 import { fmtDate } from '../lib/utils'
 import { useAuth } from '../store/auth'
 
@@ -62,6 +65,16 @@ export default function Devices() {
     try {
       await api.patch(`/devices/${id}/owner`, { ownerId: Number(ownerId) })
       toast.success('Kepemilikan device dipindahkan')
+      load()
+    } catch (e) {
+      toast.error(msgOf(e))
+    }
+  }
+
+  const setDailyLimit = async (id, limit) => {
+    try {
+      await api.put(`/devices/${id}`, { dailyRecipientLimit: Number(limit) })
+      toast.success('Batas harian device diperbarui')
       load()
     } catch (e) {
       toast.error(msgOf(e))
@@ -182,6 +195,29 @@ export default function Devices() {
                   <span className="text-slate-700">
                     {d.quotaUsed ?? 0} / {Number(d.quota) > 0 ? d.quota : 'Tanpa batas'}
                   </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span title="Batas harian penerima unik (meniru tier Meta). OTP & balasan inbox tidak dihitung.">
+                    Penerima unik hari ini
+                  </span>
+                  {isSuperAdmin ? (
+                    <span className="flex items-center gap-1 text-slate-700">
+                      {d.dailyRecipientsUsed ?? 0} /
+                      <select
+                        className="input h-7 w-auto py-0 text-xs"
+                        value={d.dailyRecipientLimit ?? 250}
+                        onChange={(e) => setDailyLimit(d.id, e.target.value)}
+                      >
+                        {DAILY_TIERS.map((t) => (
+                          <option key={t} value={t}>{t > 0 ? t.toLocaleString('id-ID') : 'Tanpa batas'}</option>
+                        ))}
+                      </select>
+                    </span>
+                  ) : (
+                    <span className="text-slate-700">
+                      {d.dailyRecipientsUsed ?? 0} / {Number(d.dailyRecipientLimit) > 0 ? d.dailyRecipientLimit : 'Tanpa batas'}
+                    </span>
+                  )}
                 </div>
                 <div className="flex justify-between">
                   <span>Last seen</span>

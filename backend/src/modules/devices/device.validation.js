@@ -19,6 +19,8 @@ export const updateDeviceSchema = {
     autoReconnect: Joi.boolean().optional(),
     quota: Joi.number().integer().min(0).optional(),
     quotaUsed: Joi.number().integer().min(0).optional(),
+    // Tier harian penerima unik (0 = tanpa batas) — hanya diterapkan untuk super admin.
+    dailyRecipientLimit: Joi.number().integer().min(0).optional(),
   }),
 };
 

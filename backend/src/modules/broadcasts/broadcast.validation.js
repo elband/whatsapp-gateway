@@ -1,4 +1,5 @@
 import Joi from 'joi';
+import { MAX_BATCH_SIZE, MAX_BROADCAST_RECIPIENTS } from '../../services/sendPolicy.js';
 
 export const createBroadcastSchema = {
   body: Joi.object({
@@ -11,7 +12,7 @@ export const createBroadcastSchema = {
     mediaPath: Joi.string().optional().allow('', null),
     minDelayMs: Joi.number().integer().min(0).optional(),
     maxDelayMs: Joi.number().integer().min(0).optional(),
-    batchSize: Joi.number().integer().min(0).optional(),
+    batchSize: Joi.number().integer().min(1).max(MAX_BATCH_SIZE).optional(),
     batchRestMinMs: Joi.number().integer().min(0).optional(),
     batchRestMaxMs: Joi.number().integer().min(0).optional(),
     scheduledAt: Joi.date().iso().optional().allow(null),
@@ -22,7 +23,7 @@ export const createBroadcastSchema = {
         contactId: Joi.number().integer().optional(),
         variables: Joi.object().optional(),
       }),
-    ).optional(),
+    ).max(MAX_BROADCAST_RECIPIENTS).optional(),
     contactGroupId: Joi.number().integer().optional().allow(null),
     contactIds: Joi.array().items(Joi.number().integer()).optional(),
   }),

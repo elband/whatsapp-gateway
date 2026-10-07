@@ -10,14 +10,10 @@ import { parseSort } from '../../utils/listQuery.js';
 import { shardForDevice } from '../../cluster/deviceRouter.js';
 import * as socket from '../../realtime/emit.js';
 import { deviceOwnerWhere, ownerWhere, assertOwned, assertDeviceOwned } from '../../utils/ownerScope.js';
-
-function rand(min, max) {
-  if (max < min) [min, max] = [max, min];
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
+import { rand, typingDelayMs, effectiveBatchSize, MAX_BROADCAST_RECIPIENTS } from '../../services/sendPolicy.js';
 
 // Ambil integer dari input; pakai fallback bila kosong. 0 tetap dihormati
-// (mis. batchSize=0 = matikan istirahat batch), jadi tidak boleh pakai `||`.
+// (mis. batchRestMinMs=0 = tanpa istirahat antar kelompok), jadi tidak boleh pakai `||`.
 function intOr(val, fallback) {
   if (val === undefined || val === null || val === '') return fallback;
   const n = Number(val);
@@ -60,6 +56,12 @@ export async function create(data, file, user) {
 
   const recipients = await buildRecipients(data, user);
   if (recipients.length === 0) throw ApiError.badRequest('Tidak ada penerima valid');
+  // Aturan daftar siaran WhatsApp: maks 256 kontak per siaran.
+  if (recipients.length > MAX_BROADCAST_RECIPIENTS) {
+    throw ApiError.badRequest(
+      `Maksimal ${MAX_BROADCAST_RECIPIENTS} penerima per broadcast (aturan daftar siaran WhatsApp), saat ini ${recipients.length}. Bagi menjadi beberapa broadcast.`,
+    );
+  }
 
   const mediaPath = file ? path.relative(uploadRoot, file.path) : data.mediaPath || null;
   const scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : null;
@@ -76,7 +78,7 @@ export async function create(data, file, user) {
       mediaPath,
       minDelayMs: data.minDelayMs || env.broadcast.minDelayMs,
       maxDelayMs: data.maxDelayMs || env.broadcast.maxDelayMs,
-      batchSize: intOr(data.batchSize, env.broadcast.batchSize),
+      batchSize: effectiveBatchSize(intOr(data.batchSize, env.broadcast.batchSize)),
       batchRestMinMs: intOr(data.batchRestMinMs, env.broadcast.batchRestMinMs),
       batchRestMaxMs: intOr(data.batchRestMaxMs, env.broadcast.batchRestMaxMs),
       scheduledAt,
@@ -97,11 +99,12 @@ export async function create(data, file, user) {
   return _get(broadcast.id);
 }
 
-// Masukkan semua item QUEUED ke queue dengan jeda acak kumulatif.
-// Anti-ban: tiap `batchSize` pesan, sisipkan istirahat panjang (batchRest*)
-// sebelum batch berikutnya — meniru pola manusia, hindari kirim beruntun nonstop.
+// Masukkan semua item QUEUED ke queue dengan jeda kumulatif yang meniru aturan
+// worker: tiap pesan = simulasi mengetik (sebanding panjang pesan) + jeda acak,
+// dan istirahat panjang (batchRest*) tiap kelompok maks 5 pesan. Penegakan
+// sebenarnya ada di worker (slot per device); jadwal ini hanya menyebar job.
 export async function start(broadcastId) {
-  const broadcast = await prisma.broadcast.findUnique({ where: { id: broadcastId } });
+  const broadcast = await prisma.broadcast.findUnique({ where: { id: broadcastId }, include: { template: true } });
   if (!broadcast) throw ApiError.notFound('Broadcast tidak ditemukan');
 
   const items = await prisma.broadcastItem.findMany({
@@ -110,19 +113,20 @@ export async function start(broadcastId) {
   });
 
   // Pengaturan istirahat per-batch: utamakan nilai per-broadcast, fallback ke env.
-  const batchSize = broadcast.batchSize ?? env.broadcast.batchSize;
+  const batchSize = effectiveBatchSize(broadcast.batchSize ?? env.broadcast.batchSize);
   const batchRestMinMs = broadcast.batchRestMinMs ?? env.broadcast.batchRestMinMs;
   const batchRestMaxMs = broadcast.batchRestMaxMs ?? env.broadcast.batchRestMaxMs;
   const shard = await shardForDevice(broadcast.deviceId);
+  const text = broadcast.template?.body || broadcast.body || broadcast.caption || '';
   let cumulative = 0;
   let sentInSchedule = 0;
   for (const item of items) {
     await enqueueBroadcastItem(item.id, shard, cumulative);
     sentInSchedule += 1;
-    // Jeda normal antar pesan.
-    cumulative += rand(broadcast.minDelayMs, broadcast.maxDelayMs);
+    // Jeda antar pesan: mengetik + jeda acak.
+    cumulative += typingDelayMs(text) + rand(broadcast.minDelayMs, broadcast.maxDelayMs);
     // Istirahat panjang tiap kelipatan batchSize (kecuali item terakhir).
-    if (batchSize > 0 && sentInSchedule % batchSize === 0 && sentInSchedule < items.length) {
+    if (sentInSchedule % batchSize === 0 && sentInSchedule < items.length) {
       cumulative += rand(batchRestMinMs, batchRestMaxMs);
     }
   }

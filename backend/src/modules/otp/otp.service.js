@@ -39,7 +39,7 @@ export async function send({ deviceId, to, length = 6, purpose, expiresMinutes =
 
   // Kirim lewat pipeline pesan biasa (kena kuota & queue). user diteruskan agar
   // via JWT dashboard tidak bisa kirim lewat device milik user lain.
-  await messageService.sendText({ deviceId, to: phone, body: text, apiKey, apiKeyId, user });
+  await messageService.sendText({ deviceId, to: phone, body: text, apiKey, apiKeyId, user, kind: 'otp' });
 
   const otp = await prisma.otp.create({
     data: {
