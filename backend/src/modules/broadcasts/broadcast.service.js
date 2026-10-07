@@ -10,7 +10,7 @@ import { parseSort } from '../../utils/listQuery.js';
 import { shardForDevice } from '../../cluster/deviceRouter.js';
 import * as socket from '../../realtime/emit.js';
 import { deviceOwnerWhere, ownerWhere, assertOwned, assertDeviceOwned } from '../../utils/ownerScope.js';
-import { rand, typingDelayMs, effectiveBatchSize, MAX_BROADCAST_RECIPIENTS } from '../../services/sendPolicy.js';
+import { rand, typingDelayMs, effectiveBatchSize } from '../../services/sendPolicy.js';
 
 // Ambil integer dari input; pakai fallback bila kosong. 0 tetap dihormati
 // (mis. batchRestMinMs=0 = tanpa istirahat antar kelompok), jadi tidak boleh pakai `||`.
@@ -56,12 +56,6 @@ export async function create(data, file, user) {
 
   const recipients = await buildRecipients(data, user);
   if (recipients.length === 0) throw ApiError.badRequest('Tidak ada penerima valid');
-  // Aturan daftar siaran WhatsApp: maks 256 kontak per siaran.
-  if (recipients.length > MAX_BROADCAST_RECIPIENTS) {
-    throw ApiError.badRequest(
-      `Maksimal ${MAX_BROADCAST_RECIPIENTS} penerima per broadcast (aturan daftar siaran WhatsApp), saat ini ${recipients.length}. Bagi menjadi beberapa broadcast.`,
-    );
-  }
 
   const mediaPath = file ? path.relative(uploadRoot, file.path) : data.mediaPath || null;
   const scheduledAt = data.scheduledAt ? new Date(data.scheduledAt) : null;

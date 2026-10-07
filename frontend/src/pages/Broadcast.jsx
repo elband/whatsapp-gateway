@@ -11,8 +11,6 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { fmtDate } from '../lib/utils'
 import { onSocket } from '../lib/socket'
 
-// Aturan daftar siaran WhatsApp: maks 256 penerima per broadcast (divalidasi juga di backend).
-const MAX_RECIPIENTS = 256
 
 export default function Broadcast() {
   const [list, setList] = useState([])
@@ -227,8 +225,6 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
   const save = async () => {
     if (!form.name.trim()) return toast.error('Name is required')
     if (!form.deviceId) return toast.error('Select a device')
-    if (recipientMode === 'manual' && manualCount > MAX_RECIPIENTS)
-      return toast.error(`Maksimal ${MAX_RECIPIENTS} penerima per broadcast (saat ini ${manualCount})`)
     setSaving(true)
     try {
       const recipients =
@@ -413,7 +409,7 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
 
         <div className="sm:col-span-2">
           <label className="label">
-            Recipients <span className="font-normal text-slate-400">(maks {MAX_RECIPIENTS})</span>
+            Recipients
           </label>
           <div className="mb-2 flex gap-2">
             <button
@@ -439,8 +435,8 @@ function CreateBroadcastModal({ open, onClose, onSaved }) {
                 value={form.recipientsText}
                 onChange={(e) => setForm({ ...form, recipientsText: e.target.value })}
               />
-              <p className={`mt-1 text-xs ${manualCount > MAX_RECIPIENTS ? 'text-red-500' : 'text-slate-400'}`}>
-                {manualCount} / {MAX_RECIPIENTS} penerima
+              <p className="mt-1 text-xs text-slate-400">
+                {manualCount} penerima
               </p>
             </>
           ) : (

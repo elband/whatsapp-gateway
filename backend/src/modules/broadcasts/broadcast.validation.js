@@ -1,5 +1,5 @@
 import Joi from 'joi';
-import { MAX_BATCH_SIZE, MAX_BROADCAST_RECIPIENTS } from '../../services/sendPolicy.js';
+import { MAX_BATCH_SIZE } from '../../services/sendPolicy.js';
 
 export const createBroadcastSchema = {
   body: Joi.object({
@@ -23,7 +23,7 @@ export const createBroadcastSchema = {
         contactId: Joi.number().integer().optional(),
         variables: Joi.object().optional(),
       }),
-    ).max(MAX_BROADCAST_RECIPIENTS).optional(),
+    ).optional(),
     contactGroupId: Joi.number().integer().optional().allow(null),
     contactIds: Joi.array().items(Joi.number().integer()).optional(),
   }),

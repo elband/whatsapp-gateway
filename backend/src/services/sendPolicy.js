@@ -4,11 +4,9 @@ import { env } from '../config/env.js';
 // - Forward maks 5 chat sekaligus  → pesan dikirim per kelompok maks 5, berurutan,
 //   dengan istirahat antar kelompok.
 // - Jeda antar penerima sebanding panjang pesan → simulasi mengetik.
-// - Daftar siaran maks 256 kontak  → batas penerima per broadcast.
 // - Tier portofolio Meta (250 / 2.000 / ...) → batas harian penerima unik per device.
 
 export const MAX_BATCH_SIZE = 5;
-export const MAX_BROADCAST_RECIPIENTS = 256;
 export const DAILY_TIERS = [250, 2000, 10000, 100000, 0]; // 0 = tanpa batas
 
 // Jenis pesan (Message.meta.kind) yang tidak dihitung ke tier harian: OTP (sesuai
@@ -58,6 +56,6 @@ export function msUntilNextDay(date = new Date(), timeZone = env.sendPolicy.time
 }
 
 export default {
-  MAX_BATCH_SIZE, MAX_BROADCAST_RECIPIENTS, DAILY_TIERS, DAILY_EXEMPT_KINDS,
+  MAX_BATCH_SIZE, DAILY_TIERS, DAILY_EXEMPT_KINDS,
   rand, typingDelayMs, effectiveBatchSize, dayKey, msUntilNextDay,
 };
