@@ -205,7 +205,7 @@ export default function Devices() {
                       {d.dailyRecipientsUsed ?? 0} /
                       <select
                         className="input h-7 w-auto py-0 text-xs"
-                        value={d.dailyRecipientLimit ?? 250}
+                        value={d.dailyRecipientLimit ?? 0}
                         onChange={(e) => setDailyLimit(d.id, e.target.value)}
                       >
                         {DAILY_TIERS.map((t) => (
