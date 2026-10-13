@@ -75,7 +75,10 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
   const body = reply.key === 'webhook' ? reply.template : renderTemplate(reply.template, vars);
   if (!body) return;
 
-  await queueReply({ device, party, reply, body, meta: isGroup ? { groupJid } : {} });
+  // Pengirim hanya dikenal lewat LID (nomor asli tidak ikut terkirim): `party` berisi
+  // id LID, bukan nomor — balasan harus dialamatkan ke JID LID-nya (lihat worker).
+  const lidOnly = !isGroup && lid && lid === fromPhone;
+  await queueReply({ device, party, reply, body, meta: isGroup ? { groupJid } : lidOnly ? { lidJid: `${lid}@lid` } : {} });
 }
 
 // Dipanggil dari BaileysManager saat panggilan masuk berakhir tanpa diangkat.

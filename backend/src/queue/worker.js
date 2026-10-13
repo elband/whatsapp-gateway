@@ -1,4 +1,4 @@
-import { Worker, DelayedError } from 'bullmq';
+import { Worker, DelayedError, UnrecoverableError } from 'bullmq';
 import path from 'node:path';
 import { createRedisConnection } from '../config/redis.js';
 import { env } from '../config/env.js';
@@ -33,6 +33,20 @@ async function paceOrDelay(job, token, deviceId, opts) {
 }
 
 const SENT_STATUSES = ['SENT', 'DELIVERED', 'READ'];
+// Balasan otomatis yang terlalu lama mengantre tidak lagi relevan — dibuang, bukan dikirim.
+const AUTOREPLY_MAX_AGE_MS = 15 * 60000;
+
+// Tandai pesan FAILED (tanpa ini, kegagalan sebelum tahap kirim membiarkannya QUEUED selamanya).
+async function markFailed(messageId, error) {
+  await prisma.message.update({ where: { id: messageId }, data: { status: 'FAILED', error } });
+  socket.emit('message:status', { id: messageId, status: 'FAILED', error });
+}
+
+// Gagal permanen: tandai FAILED dan hentikan retry BullMQ (percuma diulang).
+async function failForGood(messageId, error) {
+  await markFailed(messageId, error);
+  throw new UnrecoverableError(error);
+}
 
 async function processSingle(job, token) {
   const messageId = job.data.messageId;
@@ -46,6 +60,11 @@ async function processSingle(job, token) {
   // Aturan anti-ban: simulasi mengetik sebanding panjang pesan; selain OTP,
   // pesan diantre berurutan per device dalam kelompok maks 5 + istirahat.
   const isOtp = message.meta?.kind === 'otp';
+  const isAutoreply = message.meta?.kind === 'autoreply';
+  // Sebelum antre slot: balasan basi tidak boleh ikut memakan giliran kirim device.
+  if (isAutoreply && Date.now() - new Date(message.createdAt).getTime() > AUTOREPLY_MAX_AGE_MS) {
+    await failForGood(messageId, 'Balasan otomatis kedaluwarsa (terlalu lama di antrean)');
+  }
   const typingMs = typingDelayMs(message.body || message.caption || '', { otp: isOtp });
   if (!isOtp) {
     const sp = env.sendPolicy;
@@ -57,24 +76,30 @@ async function processSingle(job, token) {
   }
 
   // Auto-balas di grup menyimpan JID grup di meta.groupJid (di-set server-side saja).
-  // Balasan panggilan tak terjawab dari pemanggil ber-LID tanpa nomor asli memakai
-  // meta.lidJid — alamat LID tidak bisa dicek lewat onWhatsApp, jadi dikirim langsung.
-  const groupJid = message.meta?.kind === 'autoreply' ? message.meta?.groupJid : null;
-  const lidJid = message.meta?.kind === 'autoreply' ? message.meta?.lidJid : null;
+  // Balasan untuk lawan bicara yang hanya dikenal lewat LID (nomor asli tidak diketahui)
+  // memakai meta.lidJid — alamat LID tidak bisa dicek lewat onWhatsApp, jadi dikirim langsung.
+  const groupJid = isAutoreply ? message.meta?.groupJid : null;
+  const lidJid = isAutoreply ? message.meta?.lidJid : null;
   const jid = groupJid && String(groupJid).endsWith('@g.us')
     ? groupJid
     : lidJid && String(lidJid).endsWith('@lid')
       ? lidJid
       : toJid(message.to);
-  if (!jid) throw new Error('Nomor tujuan tidak valid');
+  if (!jid) await failForGood(messageId, 'Nomor tujuan tidak valid');
 
   // Verifikasi nomor terdaftar di WhatsApp & pakai JID kanonik hasil resolusi.
   // Mencegah status "SENT" palsu: jika nomor tidak punya WhatsApp, Baileys tetap
   // menerima pesan & mengembalikan key.id, tapi pesan tak pernah terkirim.
   let targetJid = jid;
   if (message.type !== 'GROUP' && !String(jid).endsWith('@g.us') && !String(jid).endsWith('@lid')) {
-    const resolved = await baileysManager.checkNumber(message.deviceId, jid);
-    if (!resolved) throw new Error('Nomor tidak terdaftar di WhatsApp');
+    let resolved;
+    try {
+      resolved = await baileysManager.checkNumber(message.deviceId, jid);
+    } catch (err) {
+      await markFailed(messageId, err.message); // mis. device terputus — retry bisa memulihkan
+      throw err;
+    }
+    if (!resolved) await failForGood(messageId, 'Nomor tidak terdaftar di WhatsApp');
     targetJid = resolved;
   }
 

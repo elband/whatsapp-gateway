@@ -44,6 +44,9 @@ async function main() {
     if (d.status !== 'CONNECTED') problem(`${tag}: status ${d.status}, bukan CONNECTED — scan QR / sambungkan dulu.`);
     if (cfg.mode === 'OFF') problem(`${tag}: mode auto-balas Mati — ubah di Devices → Auto-balas.`);
     if (cfg.mode !== 'KEYWORD' && cfg.mode !== 'OFF') problem(`${tag}: mode ${cfg.mode} — aturan keyword hanya jalan di mode Keyword (balasan panggilan tetap jalan).`);
+    if (cfg.mode === 'KEYWORD' && d.status === 'CONNECTED' && cfg.cooldownMinutes === 0 && keywords > 0) {
+      problem(`${tag}: jeda keyword = 0, jadi SETIAP pesan yang cocok dibalas (termasuk laporan otomatis yang berulang). Isi "Jeda keyword yang sama per kontak" di Devices → Auto-balas, mis. 60 menit.`);
+    }
     if (!mine.length) problem(`${tag}: tidak ada aturan aktif yang berlaku untuk device ini (pemilik device user#${d.ownerId ?? '-'}).`);
     if (role === 'all' && d.shardId) problem(`${tag}: shardId=${d.shardId} padahal aplikasi jalan satu proses — pesan keluar device ini tidak pernah diproses. Set shardId ke 0.`);
   }
