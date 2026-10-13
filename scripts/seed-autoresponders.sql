@@ -21,6 +21,8 @@ FROM (
   SELECT 'Panggilan tak terjawab' AS name, 'MISSED_CALL' AS triggerType, '' AS keyword, 'CONTAINS' AS matchType,
          'Mohon maaf {{nama}}, saya belum dapat mengangkat telepon Bapak/Ibu. Jika berkenan, silakan sampaikan keperluan melalui pesan ini, akan segera saya sampaikan kepada pemilik akun ini. Terima kasih.' AS response,
          1 AS isActive, 10 AS priority
+  -- Pengecualian (response kosong = tidak dibalas); prioritas tertinggi agar menang dari keyword lain.
+  UNION ALL SELECT 'Laporan inspeksi (tidak dibalas)', 'MESSAGE', 'inspeksi perangkat', 'CONTAINS', '', 1, 100
   UNION ALL SELECT 'Penting', 'MESSAGE', 'penting', 'CONTAINS', 'Baik {{nama}}, terima kasih atas pesan Bapak/Ibu. Akan segera saya sampaikan kepada pemilik akun ini. Mohon kesediaannya menunggu.', 1, 5
   UNION ALL SELECT 'Terima kasih', 'MESSAGE', 'terima kasih', 'CONTAINS', 'Sama-sama {{nama}}, terima kasih kembali kepada Bapak/Ibu.', 1, 0
   -- Keyword REGEX (tidak peka huruf besar): satu aturan mencakup banyak kata. Backslash

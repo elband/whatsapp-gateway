@@ -16,7 +16,8 @@ export const createSchema = {
       otherwise: Joi.string().max(200).required(),
     }),
     matchType: Joi.string().valid(...matchTypes).default('CONTAINS'),
-    response: Joi.string().required(),
+    // Kosong = pengecualian: pesan yang cocok TIDAK dibalas (juga tanpa balasan default).
+    response: Joi.string().allow('').required(),
     templateId: Joi.number().integer().optional().allow(null),
     isActive: Joi.boolean().optional(),
     priority: Joi.number().integer().optional(),
@@ -30,7 +31,7 @@ export const updateSchema = {
     triggerType: Joi.string().valid(...triggerTypes).optional(),
     keyword: Joi.string().max(200).allow('').optional(),
     matchType: Joi.string().valid(...matchTypes).optional(),
-    response: Joi.string().optional(),
+    response: Joi.string().allow('').optional(),
     templateId: Joi.number().integer().optional().allow(null),
     isActive: Joi.boolean().optional(),
     priority: Joi.number().integer().optional(),

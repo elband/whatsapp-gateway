@@ -90,6 +90,12 @@ describe('pickReply', () => {
     expect(pickReply({ config: c, rules, text: 'apa kabar' })).toEqual({ template: 'Ketik MENU', key: 'fallback', cooldownMinutes: 30 });
     expect(pickReply({ config: c, rules, text: '' }).key).toBe('fallback');
   });
+  it('KEYWORD: aturan cocok dengan response kosong = pengecualian (tanpa balasan default)', () => {
+    const silent = [{ id: 1, keyword: 'inspeksi perangkat', matchType: 'CONTAINS', response: '' }, ...rules];
+    const c = cfg({ fallbackMessage: 'Ketik MENU' });
+    expect(pickReply({ config: c, rules: silent, text: '✅ INSPEKSI PERANGKAT: Kondisi Baik, cek harga' })).toBeNull();
+    expect(pickReply({ config: c, rules: silent, text: 'cek harga' }).key).toBe('rule:7');
+  });
   it('AWAY: hanya di luar jam kerja, keyword diabaikan', () => {
     const c = cfg({ mode: 'AWAY', awayMessage: 'Kami tutup' });
     expect(pickReply({ config: c, rules, text: 'harga', withinHours: true })).toBeNull();

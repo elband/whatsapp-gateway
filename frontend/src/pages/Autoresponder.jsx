@@ -66,7 +66,9 @@ export default function Autoresponder() {
         isCall(r) ? (
           <span className="inline-flex items-center gap-1 text-slate-600"><PhoneMissed size={14} /> Panggilan tak terjawab</span>
         ) : (
-          <span className="text-slate-600">{r.keyword}</span>
+          <span className="text-slate-600">
+            {r.keyword} {!r.response && !r.template && <Badge tone="gray">Tidak dibalas</Badge>}
+          </span>
         ),
     },
     {
@@ -178,7 +180,7 @@ function AutoresponderModal({ item, onClose, onSaved }) {
     if (!form.name?.trim()) return toast.error('Name is required')
     const call = isCall(form)
     if (!call && !form.keyword?.trim()) return toast.error('Keyword is required')
-    if (!form.response?.trim()) return toast.error('Response is required')
+    if (call && !form.response?.trim()) return toast.error('Response is required')
     setSaving(true)
     try {
       const payload = {
@@ -268,14 +270,17 @@ function AutoresponderModal({ item, onClose, onSaved }) {
           </div>
         </div>
         <div>
-          <label className="label">Response *</label>
+          <label className="label">Response{isCall(form) ? ' *' : ''}</label>
           <textarea
             className="input min-h-[120px]"
             placeholder={isCall(form) ? 'Halo {{nama}}, maaf telepon Anda belum bisa kami angkat. Silakan tulis keperluan Anda di sini.' : 'Halo {{nama}}, terima kasih sudah menghubungi kami.'}
             value={form.response || ''}
             onChange={(e) => setForm({ ...form, response: e.target.value })}
           />
-          <p className="mt-1 text-xs text-slate-400">Bisa pakai variabel {'{{nama}}'} dan {'{{nomor}}'}.</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Bisa pakai variabel {'{{nama}}'} dan {'{{nomor}}'}.
+            {!isCall(form) && ' Kosongkan agar pesan yang cocok tidak dibalas sama sekali (pengecualian) — beri prioritas tinggi.'}
+          </p>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>

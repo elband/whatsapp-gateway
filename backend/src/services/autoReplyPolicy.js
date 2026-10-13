@@ -116,6 +116,7 @@ export function pickReply({ config, rules = [], text, withinHours, webhookReply 
     case 'KEYWORD': {
       const matched = text ? rules.find((r) => isMatch(r, text)) : null;
       if (matched) {
+        // Aturan cocok tanpa isi = pengecualian: tidak dibalas, balasan default pun tidak.
         const template = matched.template?.body || matched.response || '';
         return template
           ? { template, key: `rule:${matched.id}`, cooldownMinutes: config.cooldownMinutes, ruleId: matched.id }

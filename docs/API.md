@@ -85,7 +85,7 @@ Format respons konsisten:
 | POST | `/autoresponders` | `{ name, deviceId?(null=semua device), keyword, matchType, response, templateId?, priority?, isActive? }` |
 | PUT/DELETE | `/autoresponders/:id` | ubah / hapus |
 
-`matchType`: `EXACT` \| `CONTAINS` \| `STARTS_WITH` \| `REGEX`. `response` mendukung `{{nama}}`, `{{nomor}}`. Auto-reply terkirim otomatis saat ada pesan masuk yang cocok.
+`matchType`: `EXACT` \| `CONTAINS` \| `STARTS_WITH` \| `REGEX`. `response` mendukung `{{nama}}`, `{{nomor}}`. Auto-reply terkirim otomatis saat ada pesan masuk yang cocok. `response` kosong (`""`) pada aturan `MESSAGE` = pengecualian: pesan yang cocok tidak dibalas sama sekali (beri `priority` tinggi).
 
 `triggerType` (opsional, default `MESSAGE`): `MESSAGE` = pesan masuk yang cocok `keyword`; `MISSED_CALL` = panggilan WhatsApp (suara/video, bukan grup) yang tidak terangkat — `keyword`/`matchType` diabaikan dan boleh kosong. Aturan `MISSED_CALL` berlaku di semua mode auto-balas device kecuali `OFF`, dan dibatasi jeda `noticeCooldownMinutes` per penelepon. Filter daftar: `?triggerType=MISSED_CALL`.
 
