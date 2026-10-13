@@ -18,10 +18,10 @@ INSERT INTO autoresponders (name, deviceId, triggerType, keyword, matchType, res
 SELECT s.name, NULL, s.triggerType, s.keyword, s.matchType, s.response, s.isActive, s.priority, @owner, NOW(3)
 FROM (
   SELECT 'Panggilan tak terjawab' AS name, 'MISSED_CALL' AS triggerType, '' AS keyword, 'CONTAINS' AS matchType,
-         'Mohon maaf {{nama}}, saya belum dapat mengangkat telepon Anda. Jika berkenan, silakan sampaikan keperluan Anda melalui pesan ini, akan segera saya balas. Terima kasih.' AS response,
+         'Mohon maaf {{nama}}, saya belum dapat mengangkat telepon Bapak/Ibu. Jika berkenan, silakan sampaikan keperluan melalui pesan ini, akan segera saya sampaikan kepada pemilik akun ini. Terima kasih.' AS response,
          1 AS isActive, 10 AS priority
-  UNION ALL SELECT 'Penting', 'MESSAGE', 'penting', 'CONTAINS', 'Baik {{nama}}, terima kasih atas pesannya. Akan saya prioritaskan dan saya balas secepatnya. Mohon kesediaannya menunggu.', 1, 5
-  UNION ALL SELECT 'Terima kasih', 'MESSAGE', 'terima kasih', 'CONTAINS', 'Sama-sama {{nama}}, terima kasih kembali.', 1, 0
+  UNION ALL SELECT 'Penting', 'MESSAGE', 'penting', 'CONTAINS', 'Baik {{nama}}, terima kasih atas pesan Bapak/Ibu. Akan segera saya sampaikan kepada pemilik akun ini. Mohon kesediaannya menunggu.', 1, 5
+  UNION ALL SELECT 'Terima kasih', 'MESSAGE', 'terima kasih', 'CONTAINS', 'Sama-sama {{nama}}, terima kasih kembali kepada Bapak/Ibu.', 1, 0
 ) AS s
 WHERE @owner IS NOT NULL
   AND NOT EXISTS (
