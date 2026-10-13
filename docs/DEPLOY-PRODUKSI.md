@@ -217,8 +217,10 @@ Buka **https://wg.aptpairport.id** → login (email/password dari `SEED_ADMIN_*`
 ## Operasional
 
 ```bash
-# Update tanpa downtime (git pull -> migrate -> build -> pm2 reload)
+# Update (backup DB -> git pull -> migrate -> build -> pm2 reload -> cek health)
 bash scripts/update.sh
+# Opsi: FORCE=1 (bangun ulang tanpa commit baru, mis. setelah ubah .env),
+#       NO_PULL=1 (bangun commit yang ter-checkout, untuk rollback), SKIP_BACKUP=1
 
 # Log & monitoring
 pm2 logs wa-gateway-api
