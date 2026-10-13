@@ -18,8 +18,12 @@ else
   npx prisma db push
 fi
 
-echo "==> [3/5] Seed data awal (admin, roles, permissions) — aman dijalankan berulang"
+echo "==> [3/5] Seed data awal (admin, roles, permissions, autoresponder) — aman dijalankan berulang"
 node prisma/seed.js || true
+# Data awal autoresponder (panggilan tak terjawab + keyword). Hanya menambah aturan
+# yang belum ada (per nama & pemilik) — aturan yang pernah dihapus akan dibuat lagi.
+npx prisma db execute --schema prisma/schema.prisma --file "${APP_DIR}/scripts/seed-autoresponders.sql" \
+  || echo "    (peringatan) seed autoresponder gagal — jalankan manual: scripts/seed-autoresponders.sql"
 
 echo "==> [4/5] Build frontend"
 cd "${APP_DIR}/frontend"
