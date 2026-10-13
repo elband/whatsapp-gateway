@@ -1,6 +1,6 @@
 -- Data awal autoresponder untuk pemakaian WhatsApp pribadi
 -- (balasan panggilan tak terjawab + beberapa keyword).
--- Dijalankan otomatis oleh scripts/deploy.sh. Manual, SETELAH migrasi (butuh kolom
+-- Dijalankan otomatis oleh scripts/deploy.sh dan scripts/update.sh. Manual, SETELAH migrasi (butuh kolom
 -- autoresponders.triggerType):
 --   mysql -u <user> -p <database> < scripts/seed-autoresponders.sql
 -- Aman dijalankan berulang: aturan dengan nama yang sama milik pemilik yang sama dilewati.

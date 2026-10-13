@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Update aplikasi di server produksi: backup DB -> git pull -> dependency ->
-# migrasi -> build frontend (atomic) -> reload PM2 -> cek health.
+# migrasi -> data awal autoresponder -> build frontend (atomic) -> reload PM2 -> cek health.
 #
 # Pakai:
 #   bash scripts/update.sh
@@ -9,6 +9,7 @@
 #   FORCE=1         tetap jalan walau tidak ada commit baru (mis. setelah ubah .env)
 #   NO_PULL=1       jangan git pull; bangun commit yang sedang ter-checkout (rollback)
 #   SKIP_BACKUP=1   lewati backup database (tidak disarankan)
+#   SKIP_SEED=1     jangan isi data awal autoresponder (scripts/seed-autoresponders.sql)
 #   ECOSYSTEM=...   file ecosystem PM2 (default: ecosystem.config.cjs;
 #                   mode cluster: ECOSYSTEM=ecosystem.cluster.cjs)
 set -euo pipefail
@@ -65,6 +66,17 @@ npm ci --include=dev || npm install --include=dev
 step "Prisma: generate klien & migrasi database"
 npx --no-install prisma generate
 npx --no-install prisma migrate deploy
+
+# Data awal autoresponder (panggilan tak terjawab + keyword), lewat DATABASE_URL —
+# tanpa user/password MySQL. Hanya menambah aturan yang belum ada (per nama &
+# pemilik): suntingan tidak ditimpa, tapi aturan bawaan yang DIHAPUS dibuat lagi.
+if [ "${SKIP_SEED:-0}" = "1" ]; then
+  step "Data awal autoresponder dilewati (SKIP_SEED=1)"
+else
+  step "Data awal autoresponder"
+  npx --no-install prisma db execute --schema prisma/schema.prisma --file "${APP_DIR}/scripts/seed-autoresponders.sql" \
+    || echo "!! Seed autoresponder gagal (update dilanjutkan) — jalankan manual: scripts/seed-autoresponders.sql" >&2
+fi
 
 step "Build frontend (atomic: build ke dist.new lalu tukar)"
 cd "${APP_DIR}/frontend"
