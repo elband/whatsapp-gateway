@@ -8,7 +8,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target, changeOrigin: true },
+      // Pakai '/api/' (bukan '/api') agar rute halaman /api-keys & /api-docs tidak ikut ter-proxy.
+      '/api/': { target, changeOrigin: true },
       '/socket.io': { target, ws: true, changeOrigin: true },
       '/uploads': { target, changeOrigin: true },
     },
