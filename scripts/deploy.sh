@@ -9,20 +9,22 @@ echo "==> [1/5] Install dependency backend"
 cd "${APP_DIR}/backend"
 npm ci --omit=dev || npm install --omit=dev
 
+# Prisma CLI ada di devDependencies (tidak terpasang karena --omit=dev). Versi dikunci ke
+# v5: `npx prisma` polos mengunduh versi TERBARU yang tidak cocok dengan skema/klien v5.
 echo "==> [2/5] Generate Prisma client & migrasi database"
-npx prisma generate
+npx --yes prisma@5 generate
 if [ -d "prisma/migrations" ] && [ -n "$(ls -A prisma/migrations 2>/dev/null)" ]; then
-  npx prisma migrate deploy
+  npx --yes prisma@5 migrate deploy
 else
   echo "    (belum ada migrasi) menjalankan prisma db push"
-  npx prisma db push
+  npx --yes prisma@5 db push
 fi
 
 echo "==> [3/5] Seed data awal (admin, roles, permissions, autoresponder) — aman dijalankan berulang"
 node prisma/seed.js || true
 # Data awal autoresponder (panggilan tak terjawab + keyword). Hanya menambah aturan
 # yang belum ada (per nama & pemilik) — aturan yang pernah dihapus akan dibuat lagi.
-npx prisma db execute --schema prisma/schema.prisma --file "${APP_DIR}/scripts/seed-autoresponders.sql" \
+npx --yes prisma@5 db execute --schema prisma/schema.prisma --file "${APP_DIR}/scripts/seed-autoresponders.sql" \
   || echo "    (peringatan) seed autoresponder gagal — jalankan manual: scripts/seed-autoresponders.sql"
 
 echo "==> [4/5] Build frontend"
