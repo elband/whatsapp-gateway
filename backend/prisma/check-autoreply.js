@@ -12,6 +12,9 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 const prisma = new PrismaClient();
 const problems = [];
 const problem = (msg) => problems.push(msg);
+// Bukan kerusakan: pilihan pengaturan yang membuat auto-balas diam / perlu diperhatikan.
+const notes = [];
+const note = (msg) => notes.push(msg);
 const fmt = (d) => (d ? new Date(d).toISOString().replace('T', ' ').slice(0, 19) : '-');
 
 async function main() {
@@ -38,14 +41,19 @@ async function main() {
     const keywords = mine.length - calls;
     console.log(
       `  #${d.id} "${d.name}" status=${d.status} nomor=${d.phoneNumber || '-'} pemilik=user#${d.ownerId ?? '-'} shard=${d.shardId ?? '-'} ` +
-        `mode=${cfg.mode} | aturan berlaku: ${keywords} keyword, ${calls} panggilan`,
+        `mode=${cfg.mode} balasGrup=${cfg.replyInGroups ? 'ya' : 'tidak'} jedaKeyword=${cfg.cooldownMinutes}mnt ` +
+        `jedaSetelahManual=${cfg.pauseAfterManualMinutes}mnt | aturan berlaku: ${keywords} keyword, ${calls} panggilan`,
     );
     const tag = `Device #${d.id} "${d.name}"`;
-    if (d.status !== 'CONNECTED') problem(`${tag}: status ${d.status}, bukan CONNECTED — scan QR / sambungkan dulu.`);
-    if (cfg.mode === 'OFF') problem(`${tag}: mode auto-balas Mati — ubah di Devices → Auto-balas.`);
-    if (cfg.mode !== 'KEYWORD' && cfg.mode !== 'OFF') problem(`${tag}: mode ${cfg.mode} — aturan keyword hanya jalan di mode Keyword (balasan panggilan tetap jalan).`);
-    if (cfg.mode === 'KEYWORD' && d.status === 'CONNECTED' && cfg.cooldownMinutes === 0 && keywords > 0) {
-      problem(`${tag}: jeda keyword = 0, jadi SETIAP pesan yang cocok dibalas (termasuk laporan otomatis yang berulang). Isi "Jeda keyword yang sama per kontak" di Devices → Auto-balas, mis. 60 menit.`);
+    if (d.status !== 'CONNECTED') note(`${tag}: status ${d.status} — tidak bisa membalas sampai disambungkan lagi (scan QR).`);
+    if (cfg.mode === 'OFF') note(`${tag}: mode auto-balas Mati — memang tidak membalas. Ubah di Devices → Auto-balas bila ingin aktif.`);
+    if (cfg.mode !== 'KEYWORD' && cfg.mode !== 'OFF') note(`${tag}: mode ${cfg.mode} — aturan keyword hanya jalan di mode Keyword (balasan panggilan tetap jalan).`);
+    const live = cfg.mode === 'KEYWORD' && d.status === 'CONNECTED' && keywords > 0;
+    if (live && cfg.cooldownMinutes === 0) {
+      note(`${tag}: jeda keyword = 0, jadi SETIAP pesan yang cocok dibalas. Isi "Jeda keyword yang sama per kontak" di Devices → Auto-balas, mis. 60 menit.`);
+    }
+    if (live && cfg.replyInGroups) {
+      note(`${tag}: "balas di grup" AKTIF — keyword juga dibalas di dalam grup WhatsApp. Matikan di Devices → Auto-balas bila tidak diinginkan.`);
     }
     if (!mine.length) problem(`${tag}: tidak ada aturan aktif yang berlaku untuk device ini (pemilik device user#${d.ownerId ?? '-'}).`);
     if (role === 'all' && d.shardId) problem(`${tag}: shardId=${d.shardId} padahal aplikasi jalan satu proses — pesan keluar device ini tidak pernah diproses. Set shardId ke 0.`);
@@ -100,7 +108,9 @@ main()
   .catch((e) => problem(`Gagal membaca database: ${e.message}`))
   .finally(async () => {
     console.log('\nKESIMPULAN');
-    if (!problems.length) console.log('  Tidak ada masalah konfigurasi yang terdeteksi. Bila tetap tidak membalas, kirim: pm2 logs --lines 200');
-    for (const p of problems) console.log(`  - ${p}`);
+    if (!problems.length) console.log('  Tidak ada kerusakan yang terdeteksi. Bila tetap tidak membalas, kirim: pm2 logs --lines 200');
+    for (const p of problems) console.log(`  - MASALAH: ${p}`);
+    if (notes.length) console.log('\nCATATAN PENGATURAN (bukan kerusakan)');
+    for (const n of notes) console.log(`  - ${n}`);
     await prisma.$disconnect();
   });

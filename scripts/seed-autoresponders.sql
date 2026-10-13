@@ -36,7 +36,7 @@ FROM (
   UNION ALL SELECT 'Lokasi', 'MESSAGE', '\\b(shareloc|share\\s+loc|lokasi|alamat)\\b', 'REGEX', 'Baik {{nama}}, permintaan lokasi atau alamat akan saya sampaikan kepada pemilik akun ini. Mohon kesediaannya menunggu.', 1, 3
   UNION ALL SELECT 'Tanya kabar', 'MESSAGE', '\\b(apa|gimana|bagaimana)\\s+kabar', 'REGEX', 'Terima kasih atas perhatian Bapak/Ibu, {{nama}}. Pesan ini akan saya sampaikan kepada pemilik akun ini.', 1, 2
   UNION ALL SELECT 'Tanya kesibukan', 'MESSAGE', '\\b(lagi|sedang)\\s+(apa|sibuk|di\\s*mana)\\b|\\bsibuk\\b|\\bada\\s+waktu\\b|\\bbisa\\s+(bicara|ngobrol|telp|telpon|telepon)\\b', 'REGEX', 'Mohon maaf {{nama}}, pemilik akun ini belum dapat membalas saat ini. Pesan Bapak/Ibu akan segera saya sampaikan. Terima kasih.', 1, 2
-  UNION ALL SELECT 'Salam pembuka', 'MESSAGE', '\\bass?alam', 'REGEX', 'Waalaikumsalam {{nama}}. Terima kasih telah menghubungi. Silakan sampaikan keperluan Bapak/Ibu, akan segera saya sampaikan kepada pemilik akun ini.', 1, 2
+  UNION ALL SELECT 'Salam pembuka', 'MESSAGE', '\\bass?alam|^\\s*(ass|aslm|asw|askum|mikum|samlekum)\\b', 'REGEX', 'Waalaikumsalam {{nama}}. Terima kasih telah menghubungi. Silakan sampaikan keperluan Bapak/Ibu, akan segera saya sampaikan kepada pemilik akun ini.', 1, 2
   UNION ALL SELECT 'Selamat pagi-malam', 'MESSAGE', '^\\s*(selamat\\s+)?(pagi|siang|sore|malam)\\b', 'REGEX', 'Salam hormat {{nama}}, terima kasih telah menghubungi. Silakan sampaikan keperluan Bapak/Ibu, akan segera saya sampaikan kepada pemilik akun ini.', 1, 1
   UNION ALL SELECT 'Sapaan', 'MESSAGE', '^\\s*(halo|hallo|helo|hai|hi|hello|permisi|punten|p)\\b', 'REGEX', 'Halo {{nama}}, terima kasih telah menghubungi. Silakan sampaikan keperluan Bapak/Ibu, akan segera saya sampaikan kepada pemilik akun ini.', 1, 1
   UNION ALL SELECT 'Makasih', 'MESSAGE', '\\b(makasih|terimakasih|trims|thanks|thank\\s+you|tq|thx|suwun)\\b', 'REGEX', 'Sama-sama {{nama}}, terima kasih kembali kepada Bapak/Ibu.', 1, 0
@@ -47,5 +47,12 @@ WHERE @owner IS NOT NULL
   AND NOT EXISTS (
     SELECT 1 FROM autoresponders a WHERE a.name = s.name COLLATE utf8mb4_unicode_ci AND a.ownerId <=> @owner
   );
+
+-- Pembaruan keyword bawaan untuk instalasi lama. Hanya menyentuh aturan yang keyword-nya
+-- masih persis versi lama — keyword yang sudah Anda ubah sendiri tidak ditimpa.
+-- "Salam pembuka": kini juga mengenali singkatan salam (ass, aslm, asw, askum, mikum).
+UPDATE autoresponders
+SET keyword = '\\bass?alam|^\\s*(ass|aslm|asw|askum|mikum|samlekum)\\b', updatedAt = NOW(3)
+WHERE name = 'Salam pembuka' AND matchType = 'REGEX' AND keyword = '\\bass?alam';
 
 SELECT id, name, triggerType, keyword, matchType, isActive, ownerId FROM autoresponders ORDER BY id;
