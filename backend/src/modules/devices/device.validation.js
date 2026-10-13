@@ -1,5 +1,5 @@
 import Joi from 'joi';
-import { AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH } from '../../services/autoReplyPolicy.js';
+import { AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH, MAX_SIGNATURE_LENGTH } from '../../services/autoReplyPolicy.js';
 
 const hhmm = Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d$/).messages({ 'string.pattern.base': 'Format jam harus HH:mm' });
 const D = DEFAULT_AUTO_REPLY;
@@ -13,6 +13,8 @@ const autoReplySchema = Joi.object({
   noticeCooldownMinutes: Joi.number().integer().min(1).max(1440).default(D.noticeCooldownMinutes),
   pauseAfterManualMinutes: Joi.number().integer().min(0).max(1440).default(D.pauseAfterManualMinutes),
   fallbackMessage: Joi.string().max(MAX_REPLY_LENGTH).allow('').default(''),
+  // Penanda di akhir setiap balasan otomatis; '' = dimatikan.
+  signature: Joi.string().max(MAX_SIGNATURE_LENGTH).allow('').default(D.signature),
   awayMessage: Joi.when('mode', {
     is: 'AWAY',
     then: Joi.string().trim().min(1).max(MAX_REPLY_LENGTH).required()

@@ -4,7 +4,7 @@ import { redis } from '../config/redis.js';
 import { enqueueSingle } from '../queue/index.js';
 import { shardForDevice } from '../cluster/deviceRouter.js';
 import { renderTemplate } from './messageBuilder.js';
-import { normalizeAutoReply, isWithinSchedule, pickReply, pickCallReply } from './autoReplyPolicy.js';
+import { normalizeAutoReply, isWithinSchedule, pickReply, pickCallReply, appendSignature } from './autoReplyPolicy.js';
 
 // Kebijakan (mode, jam kerja, pemilihan balasan) ada di services/autoReplyPolicy.js;
 // di sini penegakannya: jeda setelah balasan manual, cooldown per kontak, dan
@@ -72,7 +72,7 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
 
   const vars = { nama: pushName || fromPhone, name: pushName || fromPhone, nomor: fromPhone };
   // Balasan webhook sudah final dari aplikasi luar — jangan dirender sebagai template.
-  const body = reply.key === 'webhook' ? reply.template : renderTemplate(reply.template, vars);
+  const body = reply.key === 'webhook' ? reply.template : appendSignature(renderTemplate(reply.template, vars), config.signature);
   if (!body) return;
 
   // Pengirim hanya dikenal lewat LID (nomor asli tidak ikut terkirim): `party` berisi
@@ -103,7 +103,7 @@ export async function runMissedCallReply({ device, fromPhone, lidJid, isVideo = 
     ? null
     : await prisma.contact.findFirst({ where: { ownerId: device.ownerId, phone: fromPhone }, select: { name: true } });
   const nama = contact?.name || fromPhone;
-  const body = renderTemplate(reply.template, { nama, name: nama, nomor: fromPhone });
+  const body = appendSignature(renderTemplate(reply.template, { nama, name: nama, nomor: fromPhone }), config.signature);
   if (!body) return;
 
   await queueReply({

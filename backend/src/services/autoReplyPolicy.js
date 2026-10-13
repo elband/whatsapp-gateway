@@ -14,6 +14,9 @@
 export const AUTO_REPLY_MODES = ['OFF', 'KEYWORD', 'AWAY', 'WEBHOOK'];
 export const AUTO_REPLY_TIMEZONES = ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura']; // WIB, WITA, WIT
 export const MAX_REPLY_LENGTH = 4096;
+export const MAX_SIGNATURE_LENGTH = 500;
+// Penanda di akhir setiap balasan otomatis (format WhatsApp: _miring_, *tebal*).
+export const DEFAULT_SIGNATURE = '_Ini adalah Pesan dari System:_\n*WhatsApp Gateway Enterprise*';
 
 // Default = perilaku sebelum fitur ini ada (keyword + aturan global), kecuali
 // grup yang kini tidak dibalas. Device lama (autoReply NULL) memakai nilai ini.
@@ -26,6 +29,7 @@ export const DEFAULT_AUTO_REPLY = Object.freeze({
   pauseAfterManualMinutes: 0, // diam setelah manusia membalas (0 = nonaktif)
   fallbackMessage: '',
   awayMessage: '',
+  signature: DEFAULT_SIGNATURE, // ditempel di akhir balasan otomatis ('' = tanpa penanda)
   schedule: Object.freeze({ days: Object.freeze([1, 2, 3, 4, 5]), start: '08:00', end: '17:00', timeZone: 'Asia/Jakarta' }),
 });
 
@@ -53,6 +57,8 @@ export function normalizeAutoReply(raw) {
     pauseAfterManualMinutes: intIn(r.pauseAfterManualMinutes, 0, 1440, d.pauseAfterManualMinutes),
     fallbackMessage: str(r.fallbackMessage),
     awayMessage: str(r.awayMessage),
+    // Profil lama (belum punya field ini) ikut default; string kosong = sengaja dimatikan.
+    signature: typeof r.signature === 'string' ? r.signature.slice(0, MAX_SIGNATURE_LENGTH) : d.signature,
     schedule: {
       days: days && days.length ? days : [...d.schedule.days],
       start: HHMM.test(s.start) ? s.start : d.schedule.start,
@@ -139,6 +145,13 @@ export function pickReply({ config, rules = [], text, withinHours, webhookReply 
   }
 }
 
+// Tempelkan penanda device di akhir balasan (dipisah satu baris kosong).
+export function appendSignature(body, signature) {
+  const sig = (signature || '').trim();
+  if (!body || !sig) return body;
+  return `${body.trimEnd()}\n\n${sig}`.slice(0, MAX_REPLY_LENGTH);
+}
+
 // Tentukan balasan untuk panggilan tak terjawab. `rules` = aturan ber-triggerType
 // MISSED_CALL, sudah terurut prioritas. Berlaku di semua mode kecuali OFF, dan
 // memakai jeda "notice" agar penelepon berulang tidak dibalas berkali-kali.
@@ -152,6 +165,6 @@ export function pickCallReply({ config, rules = [] }) {
 }
 
 export default {
-  AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH,
-  normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply,
+  AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH, MAX_SIGNATURE_LENGTH, DEFAULT_SIGNATURE,
+  normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply, appendSignature,
 };

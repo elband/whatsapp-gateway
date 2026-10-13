@@ -41,6 +41,7 @@ const AUTO_REPLY_DEFAULT = {
   pauseAfterManualMinutes: 0,
   fallbackMessage: '',
   awayMessage: '',
+  signature: '_Ini adalah Pesan dari System:_\n*WhatsApp Gateway Enterprise*',
   schedule: { days: [1, 2, 3, 4, 5], start: '08:00', end: '17:00', timeZone: 'Asia/Jakarta' },
 }
 const DAY_LABELS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
@@ -670,6 +671,19 @@ function AutoReplyModal({ device, onClose, onSaved }) {
               />
               Balas juga pesan di grup (balasan dikirim ke grup)
             </label>
+            <div>
+              <label className="label">Penanda di akhir setiap balasan otomatis</label>
+              <textarea
+                className="input min-h-[70px]"
+                maxLength={500}
+                value={form.signature}
+                onChange={(e) => set({ signature: e.target.value })}
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                Ditempel di bawah semua balasan otomatis device ini (keyword, balasan default, di luar jam kerja,
+                panggilan tak terjawab). Format WhatsApp: _miring_, *tebal*. Kosongkan untuk mematikan.
+              </p>
+            </div>
             <div>
               <label className="label">Jeda setelah dibalas manual (menit)</label>
               <input

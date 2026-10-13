@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply, DEFAULT_AUTO_REPLY } from '../src/services/autoReplyPolicy.js';
+import { normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply, appendSignature, DEFAULT_AUTO_REPLY, DEFAULT_SIGNATURE } from '../src/services/autoReplyPolicy.js';
 
 describe('normalizeAutoReply', () => {
   it('NULL / bukan objek → default (perilaku lama: keyword + aturan global)', () => {
@@ -107,6 +107,20 @@ describe('pickReply', () => {
     expect(pickReply({ config: c, rules, text: 'harga', webhookReply: '   ' })).toBeNull();
     expect(pickReply({ config: c, rules, text: 'harga', webhookReply: { a: 1 } })).toBeNull();
     expect(pickReply({ config: c, rules, text: 'harga' })).toBeNull();
+  });
+});
+
+describe('appendSignature', () => {
+  it('ditempel di akhir dengan satu baris kosong; kosong / spasi = tanpa penanda', () => {
+    expect(appendSignature('Halo  \n', ' _sys_\n*GW* ')).toBe('Halo\n\n_sys_\n*GW*');
+    expect(appendSignature('Halo', '')).toBe('Halo');
+    expect(appendSignature('Halo', '   ')).toBe('Halo');
+    expect(appendSignature('', '_sys_')).toBe('');
+  });
+  it('profil lama tanpa field signature ikut default; string kosong dipertahankan', () => {
+    expect(normalizeAutoReply({ mode: 'KEYWORD' }).signature).toBe(DEFAULT_SIGNATURE);
+    expect(normalizeAutoReply({ mode: 'KEYWORD', signature: '' }).signature).toBe('');
+    expect(normalizeAutoReply({ signature: 'x'.repeat(600) }).signature).toHaveLength(500);
   });
 });
 
