@@ -1,0 +1,105 @@
+import { describe, it, expect } from 'vitest';
+import { normalizeAutoReply, isWithinSchedule, isMatch, pickReply, DEFAULT_AUTO_REPLY } from '../src/services/autoReplyPolicy.js';
+
+describe('normalizeAutoReply', () => {
+  it('NULL / bukan objek → default (perilaku lama: keyword + aturan global)', () => {
+    expect(normalizeAutoReply(null)).toEqual(DEFAULT_AUTO_REPLY);
+    expect(normalizeAutoReply('x')).toEqual(DEFAULT_AUTO_REPLY);
+    expect(normalizeAutoReply(null).replyInGroups).toBe(false);
+  });
+  it('nilai tak valid jatuh ke default, nilai valid dipertahankan', () => {
+    const c = normalizeAutoReply({
+      mode: 'AWAY', cooldownMinutes: -5, noticeCooldownMinutes: 0, pauseAfterManualMinutes: 30,
+      schedule: { days: [6, 6, 9], start: '25:00', end: '21:30', timeZone: 'Mars/Olympus' },
+    });
+    expect(c.mode).toBe('AWAY');
+    expect(c.cooldownMinutes).toBe(0);
+    expect(c.noticeCooldownMinutes).toBe(60);
+    expect(c.pauseAfterManualMinutes).toBe(30);
+    expect(c.schedule).toEqual({ days: [6], start: '08:00', end: '21:30', timeZone: 'Asia/Jakarta' });
+  });
+  it('mode tak dikenal → KEYWORD', () => {
+    expect(normalizeAutoReply({ mode: 'AI' }).mode).toBe('KEYWORD');
+  });
+});
+
+describe('isWithinSchedule', () => {
+  const office = { days: [1, 2, 3, 4, 5], start: '08:00', end: '17:00', timeZone: 'Asia/Jakarta' };
+  // 2026-10-13 = Selasa. WIB = UTC+7.
+  it('di dalam & di luar jam kerja (WIB)', () => {
+    expect(isWithinSchedule(office, new Date('2026-10-13T01:00:00Z'))).toBe(true); // 08:00
+    expect(isWithinSchedule(office, new Date('2026-10-13T00:59:00Z'))).toBe(false); // 07:59
+    expect(isWithinSchedule(office, new Date('2026-10-13T10:00:00Z'))).toBe(false); // 17:00
+  });
+  it('hari libur di luar jadwal', () => {
+    expect(isWithinSchedule(office, new Date('2026-10-17T03:00:00Z'))).toBe(false); // Sabtu 10:00
+  });
+  it('zona waktu device (WIT = UTC+9)', () => {
+    const wit = { ...office, timeZone: 'Asia/Jayapura' };
+    expect(isWithinSchedule(wit, new Date('2026-10-12T23:30:00Z'))).toBe(true); // Selasa 08:30 WIT
+    expect(isWithinSchedule(office, new Date('2026-10-12T23:30:00Z'))).toBe(false); // Selasa 06:30 WIB
+  });
+  it('shift melewati tengah malam dihitung dari hari mulai', () => {
+    const night = { days: [5], start: '22:00', end: '06:00', timeZone: 'Asia/Jakarta' }; // Jumat malam
+    expect(isWithinSchedule(night, new Date('2026-10-16T16:00:00Z'))).toBe(true); // Jumat 23:00
+    expect(isWithinSchedule(night, new Date('2026-10-16T22:00:00Z'))).toBe(true); // Sabtu 05:00
+    expect(isWithinSchedule(night, new Date('2026-10-16T23:00:00Z'))).toBe(false); // Sabtu 06:00
+    expect(isWithinSchedule(night, new Date('2026-10-15T22:00:00Z'))).toBe(false); // Jumat 05:00
+  });
+  it('start == end berarti 24 jam pada hari terpilih', () => {
+    const allDay = { days: [2], start: '00:00', end: '00:00', timeZone: 'Asia/Jakarta' };
+    expect(isWithinSchedule(allDay, new Date('2026-10-13T15:00:00Z'))).toBe(true);
+    expect(isWithinSchedule(allDay, new Date('2026-10-14T15:00:00Z'))).toBe(false);
+  });
+});
+
+describe('isMatch', () => {
+  it('EXACT / CONTAINS / STARTS_WITH tidak peka huruf besar', () => {
+    expect(isMatch({ keyword: 'Info', matchType: 'EXACT' }, ' info ')).toBe(true);
+    expect(isMatch({ keyword: 'info', matchType: 'EXACT' }, 'info dong')).toBe(false);
+    expect(isMatch({ keyword: 'harga', matchType: 'CONTAINS' }, 'Berapa HARGA nya?')).toBe(true);
+    expect(isMatch({ keyword: 'halo', matchType: 'STARTS_WITH' }, 'Halo kak')).toBe(true);
+  });
+  it('REGEX tak valid / terlalu panjang tidak cocok', () => {
+    expect(isMatch({ keyword: '^(1|2)$', matchType: 'REGEX' }, '2')).toBe(true);
+    expect(isMatch({ keyword: '(', matchType: 'REGEX' }, '(')).toBe(false);
+    expect(isMatch({ keyword: 'a'.repeat(201), matchType: 'REGEX' }, 'a'.repeat(201))).toBe(false);
+  });
+});
+
+describe('pickReply', () => {
+  const cfg = (over) => normalizeAutoReply(over);
+  const rules = [
+    { id: 7, keyword: 'harga', matchType: 'CONTAINS', response: 'Daftar harga…' },
+    { id: 9, keyword: 'promo', matchType: 'CONTAINS', response: 'lama', template: { body: 'Dari template' } },
+  ];
+
+  it('OFF tidak pernah membalas', () => {
+    expect(pickReply({ config: cfg({ mode: 'OFF', fallbackMessage: 'x' }), rules, text: 'harga' })).toBeNull();
+  });
+  it('KEYWORD: aturan pertama yang cocok, cooldown keyword', () => {
+    const r = pickReply({ config: cfg({ mode: 'KEYWORD', cooldownMinutes: 5 }), rules, text: 'cek harga' });
+    expect(r).toEqual({ template: 'Daftar harga…', key: 'rule:7', cooldownMinutes: 5, ruleId: 7 });
+  });
+  it('KEYWORD: template mengalahkan response', () => {
+    expect(pickReply({ config: cfg({}), rules, text: 'promo' }).template).toBe('Dari template');
+  });
+  it('KEYWORD: tanpa kecocokan → balasan default bila diisi (juga untuk pesan tanpa teks)', () => {
+    expect(pickReply({ config: cfg({}), rules, text: 'apa kabar' })).toBeNull();
+    const c = cfg({ fallbackMessage: 'Ketik MENU', noticeCooldownMinutes: 30 });
+    expect(pickReply({ config: c, rules, text: 'apa kabar' })).toEqual({ template: 'Ketik MENU', key: 'fallback', cooldownMinutes: 30 });
+    expect(pickReply({ config: c, rules, text: '' }).key).toBe('fallback');
+  });
+  it('AWAY: hanya di luar jam kerja, keyword diabaikan', () => {
+    const c = cfg({ mode: 'AWAY', awayMessage: 'Kami tutup' });
+    expect(pickReply({ config: c, rules, text: 'harga', withinHours: true })).toBeNull();
+    expect(pickReply({ config: c, rules, text: 'harga', withinHours: false })).toEqual({ template: 'Kami tutup', key: 'away', cooldownMinutes: 60 });
+  });
+  it('WEBHOOK: pakai reply dari aplikasi luar, abaikan yang kosong / bukan string', () => {
+    const c = cfg({ mode: 'WEBHOOK' });
+    expect(pickReply({ config: c, rules, text: 'harga', webhookReply: '  Halo  ' })).toEqual({ template: 'Halo', key: 'webhook', cooldownMinutes: 0 });
+    expect(pickReply({ config: c, rules, text: 'harga', webhookReply: '   ' })).toBeNull();
+    expect(pickReply({ config: c, rules, text: 'harga', webhookReply: { a: 1 } })).toBeNull();
+    expect(pickReply({ config: c, rules, text: 'harga' })).toBeNull();
+  });
+});

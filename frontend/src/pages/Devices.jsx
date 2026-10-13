@@ -10,6 +10,7 @@ import {
   Search,
   Wifi,
   WifiOff,
+  Bot,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { msgOf } from '../lib/api'
@@ -23,6 +24,37 @@ import { onSocket } from '../lib/socket'
 
 // Tier harian penerima unik per device (meniru tier portofolio Meta); 0 = tanpa batas.
 const DAILY_TIERS = [250, 2000, 10000, 100000, 0]
+
+// Profil auto-balas per device — padanan backend/src/services/autoReplyPolicy.js.
+const AUTO_REPLY_MODES = [
+  { value: 'OFF', label: 'Mati', hint: 'Device tidak pernah membalas otomatis. Cocok untuk device OTP / notifikasi.' },
+  { value: 'KEYWORD', label: 'Keyword', hint: 'Membalas sesuai aturan di menu Autoresponder, plus balasan default opsional.' },
+  { value: 'AWAY', label: 'Di luar jam kerja', hint: 'Diam saat jam kerja; di luar itu mengirim pesan "sedang tutup".' },
+  { value: 'WEBHOOK', label: 'Webhook', hint: 'Aplikasi Anda yang menentukan balasan lewat respons webhook message.incoming.' },
+]
+const AUTO_REPLY_DEFAULT = {
+  mode: 'KEYWORD',
+  replyInGroups: false,
+  useGlobalRules: true,
+  cooldownMinutes: 0,
+  noticeCooldownMinutes: 60,
+  pauseAfterManualMinutes: 0,
+  fallbackMessage: '',
+  awayMessage: '',
+  schedule: { days: [1, 2, 3, 4, 5], start: '08:00', end: '17:00', timeZone: 'Asia/Jakarta' },
+}
+const DAY_LABELS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
+const TIMEZONES = [
+  { value: 'Asia/Jakarta', label: 'WIB' },
+  { value: 'Asia/Makassar', label: 'WITA' },
+  { value: 'Asia/Jayapura', label: 'WIT' },
+]
+const autoReplyOf = (d) => ({
+  ...AUTO_REPLY_DEFAULT,
+  ...(d?.autoReply || {}),
+  schedule: { ...AUTO_REPLY_DEFAULT.schedule, ...(d?.autoReply?.schedule || {}) },
+})
+const modeLabel = (d) => AUTO_REPLY_MODES.find((m) => m.value === autoReplyOf(d).mode)?.label || 'Keyword'
 import { fmtDate } from '../lib/utils'
 import { useAuth } from '../store/auth'
 
@@ -33,6 +65,7 @@ export default function Devices() {
   const [addOpen, setAddOpen] = useState(false)
   const [confirm, setConfirm] = useState(null)
   const [qrDevice, setQrDevice] = useState(null)
+  const [autoReplyDevice, setAutoReplyDevice] = useState(null)
   const [users, setUsers] = useState([])
   const isSuperAdmin = useAuth((s) => s.isSuperAdmin())
 
@@ -220,6 +253,10 @@ export default function Devices() {
                   )}
                 </div>
                 <div className="flex justify-between">
+                  <span>Auto-balas</span>
+                  <span className="text-slate-700">{modeLabel(d)}</span>
+                </div>
+                <div className="flex justify-between">
                   <span>Last seen</span>
                   <span className="text-slate-700">{fmtDate(d.lastSeenAt)}</span>
                 </div>
@@ -247,6 +284,9 @@ export default function Devices() {
               <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
                 <button className="btn-secondary px-2.5 py-1.5 text-xs" onClick={() => openQr(d)}>
                   <QrCode size={14} /> QR
+                </button>
+                <button className="btn-secondary px-2.5 py-1.5 text-xs" onClick={() => setAutoReplyDevice(d)}>
+                  <Bot size={14} /> Auto-balas
                 </button>
                 <button
                   className="btn-secondary px-2.5 py-1.5 text-xs"
@@ -291,6 +331,8 @@ export default function Devices() {
       <AddDeviceModal open={addOpen} onClose={() => setAddOpen(false)} onSaved={load} />
 
       <QrModal device={qrDevice} onClose={() => setQrDevice(null)} onConnected={load} />
+
+      <AutoReplyModal device={autoReplyDevice} onClose={() => setAutoReplyDevice(null)} onSaved={load} />
 
       <ConfirmDialog
         open={!!confirm}
@@ -408,6 +450,243 @@ function AddDeviceModal({ open, onClose, onSaved }) {
           />
           Auto reconnect
         </label>
+      </div>
+    </Modal>
+  )
+}
+
+function AutoReplyModal({ device, onClose, onSaved }) {
+  const open = !!device
+  const [form, setForm] = useState(AUTO_REPLY_DEFAULT)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (device) setForm(autoReplyOf(device))
+  }, [device])
+
+  const set = (patch) => setForm((f) => ({ ...f, ...patch }))
+  const setSchedule = (patch) => setForm((f) => ({ ...f, schedule: { ...f.schedule, ...patch } }))
+  const toggleDay = (day) =>
+    setSchedule({
+      days: form.schedule.days.includes(day)
+        ? form.schedule.days.filter((x) => x !== day)
+        : [...form.schedule.days, day].sort(),
+    })
+  const mode = AUTO_REPLY_MODES.find((m) => m.value === form.mode)
+
+  const save = async () => {
+    if (form.mode === 'AWAY' && !form.awayMessage.trim()) return toast.error('Pesan di luar jam kerja wajib diisi')
+    if (form.mode === 'AWAY' && form.schedule.days.length === 0) return toast.error('Pilih minimal satu hari kerja')
+    setSaving(true)
+    try {
+      await api.put(`/devices/${device.id}`, {
+        autoReply: {
+          ...form,
+          cooldownMinutes: Number(form.cooldownMinutes) || 0,
+          noticeCooldownMinutes: Number(form.noticeCooldownMinutes) || 60,
+          pauseAfterManualMinutes: Number(form.pauseAfterManualMinutes) || 0,
+          schedule: {
+            ...form.schedule,
+            days: form.schedule.days.length ? form.schedule.days : AUTO_REPLY_DEFAULT.schedule.days,
+          },
+        },
+      })
+      toast.success('Auto-balas device diperbarui')
+      onSaved?.()
+      onClose?.()
+    } catch (e) {
+      toast.error(msgOf(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Auto-balas — ${device?.name || ''}`}
+      size="lg"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn-primary" onClick={save} disabled={saving}>
+            {saving ? <Spinner size={16} /> : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="label">Mode</label>
+          <select className="input" value={form.mode} onChange={(e) => set({ mode: e.target.value })}>
+            {AUTO_REPLY_MODES.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-400">{mode?.hint}</p>
+        </div>
+
+        {form.mode === 'KEYWORD' && (
+          <>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.useGlobalRules}
+                onChange={(e) => set({ useGlobalRules: e.target.checked })}
+              />
+              Ikut aturan "Semua device"
+            </label>
+            <div>
+              <label className="label">Balasan default (bila tidak ada keyword yang cocok)</label>
+              <textarea
+                className="input min-h-[90px]"
+                placeholder="Kosongkan bila tidak perlu. Contoh: Halo {{nama}}, ketik MENU untuk daftar layanan."
+                value={form.fallbackMessage}
+                onChange={(e) => set({ fallbackMessage: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="label">Jeda keyword yang sama per kontak (menit)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="1440"
+                  className="input"
+                  value={form.cooldownMinutes}
+                  onChange={(e) => set({ cooldownMinutes: e.target.value })}
+                />
+                <p className="mt-1 text-xs text-slate-400">0 = selalu dibalas.</p>
+              </div>
+              <div>
+                <label className="label">Jeda balasan default per kontak (menit)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="1440"
+                  className="input"
+                  value={form.noticeCooldownMinutes}
+                  onChange={(e) => set({ noticeCooldownMinutes: e.target.value })}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {form.mode === 'AWAY' && (
+          <>
+            <div>
+              <label className="label">Hari kerja</label>
+              <div className="flex flex-wrap gap-1.5">
+                {DAY_LABELS.map((label, day) => (
+                  <button
+                    key={day}
+                    type="button"
+                    className={`${form.schedule.days.includes(day) ? 'btn-primary' : 'btn-secondary'} px-2.5 py-1.5 text-xs`}
+                    onClick={() => toggleDay(day)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="label">Buka</label>
+                <input
+                  type="time"
+                  className="input"
+                  value={form.schedule.start}
+                  onChange={(e) => setSchedule({ start: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Tutup</label>
+                <input
+                  type="time"
+                  className="input"
+                  value={form.schedule.end}
+                  onChange={(e) => setSchedule({ end: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label">Zona waktu</label>
+                <select
+                  className="input"
+                  value={form.schedule.timeZone}
+                  onChange={(e) => setSchedule({ timeZone: e.target.value })}
+                >
+                  {TIMEZONES.map((z) => (
+                    <option key={z.value} value={z.value}>
+                      {z.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="label">Pesan di luar jam kerja *</label>
+              <textarea
+                className="input min-h-[90px]"
+                placeholder="Halo {{nama}}, kami sedang tutup. Pesan Anda akan dibalas pada jam kerja."
+                value={form.awayMessage}
+                onChange={(e) => set({ awayMessage: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="label">Jeda pesan ini per kontak (menit)</label>
+              <input
+                type="number"
+                min="1"
+                max="1440"
+                className="input"
+                value={form.noticeCooldownMinutes}
+                onChange={(e) => set({ noticeCooldownMinutes: e.target.value })}
+              />
+            </div>
+          </>
+        )}
+
+        {form.mode === 'WEBHOOK' && (
+          <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+            Butuh Webhook URL pada device dengan event <code>message.incoming</code>. Agar gateway membalas, jawab
+            webhook itu dengan JSON <code>{'{ "reply": "teks balasan" }'}</code>. Respons tanpa <code>reply</code> berarti
+            tidak membalas.
+          </p>
+        )}
+
+        {form.mode !== 'OFF' && (
+          <div className="space-y-4 border-t border-slate-100 pt-4">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.replyInGroups}
+                onChange={(e) => set({ replyInGroups: e.target.checked })}
+              />
+              Balas juga pesan di grup (balasan dikirim ke grup)
+            </label>
+            <div>
+              <label className="label">Jeda setelah dibalas manual (menit)</label>
+              <input
+                type="number"
+                min="0"
+                max="1440"
+                className="input"
+                value={form.pauseAfterManualMinutes}
+                onChange={(e) => set({ pauseAfterManualMinutes: e.target.value })}
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                Auto-balas ke sebuah kontak diam selama ini setelah Anda membalasnya dari Inbox atau langsung dari HP. 0 =
+                nonaktif.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   )

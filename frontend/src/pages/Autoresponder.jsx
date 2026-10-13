@@ -211,6 +211,9 @@ function AutoresponderModal({ item, onClose, onSaved }) {
                 <option key={d.id} value={d.id}>{d.name}</option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-slate-400">
+              Aturan hanya jalan di device ber-mode auto-balas Keyword (atur di halaman Devices).
+            </p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

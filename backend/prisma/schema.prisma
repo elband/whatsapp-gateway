@@ -158,6 +158,9 @@ model Device {
   // Tier harian ala Meta: maks penerima unik per hari (0 = tanpa batas, default). Diatur super admin.
   dailyRecipientLimit Int   @default(0)
   shardId      Int?         // F3: WA-worker shard pemilik device (sticky assignment)
+  // Profil auto-balas per device (mode, jam kerja, cooldown, dst.) — lihat
+  // services/autoReplyPolicy.js. NULL = default (keyword + aturan global).
+  autoReply    Json?
   meta         Json?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt

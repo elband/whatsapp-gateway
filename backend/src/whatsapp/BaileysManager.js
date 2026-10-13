@@ -11,7 +11,7 @@ import { useDbAuthState } from './useDbAuthState.js';
 import * as socket from '../realtime/emit.js';
 import { dispatchWebhook } from '../services/webhookService.js';
 import { writeLog } from '../services/logService.js';
-import { runAutoreply } from '../services/autoresponderService.js';
+import { runAutoreply, markManualReply } from '../services/autoresponderService.js';
 import { fromJid } from '../utils/phone.js';
 
 const {
@@ -208,9 +208,19 @@ class BaileysManager {
     if (!device) return;
 
     for (const msg of messages) {
-      if (!msg.message || msg.key.fromMe) continue;
+      if (!msg.message) continue;
       const remoteJid = msg.key.remoteJid;
       if (isJidBroadcast(remoteJid) || isJidStatusBroadcast(remoteJid)) continue;
+
+      // Pesan fromMe bertipe 'notify' = diketik manusia langsung di HP (kiriman
+      // gateway sendiri bertipe 'append'). Catat agar auto-balas ke kontak itu jeda.
+      if (msg.key.fromMe) {
+        const m = msg.message;
+        if (m.conversation || m.extendedTextMessage || m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.stickerMessage) {
+          markManualReply(devicePk, fromJid(remoteJid)).catch(() => {});
+        }
+        continue;
+      }
 
       // L6: deteksi pesan grup & simpan partisipan (pengirim sebenarnya).
       const isGroup = isJidGroup ? isJidGroup(remoteJid) : String(remoteJid).endsWith('@g.us');
@@ -249,19 +259,26 @@ class BaileysManager {
       });
 
       socket.emit('message:incoming', record);
-      dispatchWebhook(device, 'message.incoming', {
+      const webhookResult = dispatchWebhook(device, 'message.incoming', {
         from: record.from,
         pushName: msg.pushName,
         body,
         messageId: msg.key.id,
         isGroup,
         participant,
-      });
+      }).catch(() => null);
 
-      // Auto-reply berbasis keyword (best-effort).
-      runAutoreply({ device, fromPhone, text: body, pushName: msg.pushName }).catch(
-        (e) => logger.warn({ e: e.message }, 'Autoreply gagal'),
-      );
+      // Auto-balas sesuai mode device (best-effort) — lihat services/autoReplyPolicy.js.
+      runAutoreply({
+        device,
+        fromPhone,
+        text: body,
+        pushName: msg.pushName,
+        isGroup,
+        groupJid: isGroup ? remoteJid : undefined,
+        lid: isLid ? fromJid(remoteJid) : undefined,
+        webhookResult,
+      }).catch((e) => logger.warn({ e: e.message }, 'Autoreply gagal'));
     }
   }
 

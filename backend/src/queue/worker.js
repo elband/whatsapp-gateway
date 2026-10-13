@@ -56,7 +56,9 @@ async function processSingle(job, token) {
     });
   }
 
-  const jid = toJid(message.to);
+  // Auto-balas di grup menyimpan JID grup di meta.groupJid (di-set server-side saja).
+  const groupJid = message.meta?.kind === 'autoreply' ? message.meta?.groupJid : null;
+  const jid = groupJid && String(groupJid).endsWith('@g.us') ? groupJid : toJid(message.to);
   if (!jid) throw new Error('Nomor tujuan tidak valid');
 
   // Verifikasi nomor terdaftar di WhatsApp & pakai JID kanonik hasil resolusi.

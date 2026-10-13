@@ -81,7 +81,16 @@ export async function create(data, user) {
 }
 
 export async function update(id, data, user) {
-  await get(id, user);
+  const current = await get(id, user);
+  // Mode WEBHOOK mengambil balasan dari respons webhook message.incoming.
+  if (data.autoReply?.mode === 'WEBHOOK') {
+    const url = data.webhookUrl !== undefined ? data.webhookUrl : current.webhookUrl;
+    const events = data.webhookEvents !== undefined ? data.webhookEvents : current.webhookEvents;
+    if (!url) throw ApiError.badRequest('Mode auto-balas Webhook membutuhkan Webhook URL pada device');
+    if (Array.isArray(events) && events.length > 0 && !events.includes('message.incoming')) {
+      throw ApiError.badRequest('Mode auto-balas Webhook membutuhkan event message.incoming pada webhook device');
+    }
+  }
   const device = await prisma.device.update({
     where: { id },
     data: {
@@ -90,6 +99,7 @@ export async function update(id, data, user) {
       webhookUrl: data.webhookUrl,
       webhookEvents: data.webhookEvents,
       autoReconnect: data.autoReconnect,
+      autoReply: data.autoReply,
       quota: data.quota,
       quotaUsed: data.quotaUsed,
       // reassign kepemilikan hanya boleh oleh super admin

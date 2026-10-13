@@ -2,7 +2,23 @@ import { logger } from '../config/logger.js';
 import { writeLog } from './logService.js';
 import { assertSafeUrl } from '../utils/ssrfGuard.js';
 
+// Baca body respons webhook sebagai JSON objek (maks 64 KB); selain itu null.
+async function readJsonReply(res) {
+  try {
+    if (!String(res.headers.get('content-type') || '').includes('application/json')) return null;
+    if (Number(res.headers.get('content-length') || 0) > 65536) return null;
+    const text = await res.text();
+    if (text.length > 65536) return null;
+    const json = JSON.parse(text);
+    return json && typeof json === 'object' && !Array.isArray(json) ? json : null;
+  } catch {
+    return null;
+  }
+}
+
 // Kirim event ke webhook URL device (best-effort, dengan retry sederhana).
+// Untuk message.incoming, respons JSON webhook dikembalikan (mis. { reply: "..." })
+// agar mode auto-balas WEBHOOK bisa memakainya; selain itu undefined/null.
 export async function dispatchWebhook(device, event, payload) {
   if (!device?.webhookUrl) return;
   const events = device.webhookEvents;
@@ -45,7 +61,7 @@ export async function dispatchWebhook(device, event, payload) {
         signal: controller.signal,
       });
       clearTimeout(t);
-      if (res.ok) return;
+      if (res.ok) return event === 'message.incoming' ? readJsonReply(res) : undefined;
       throw new Error(`HTTP ${res.status}`);
     } catch (err) {
       if (attempt === maxAttempts) {

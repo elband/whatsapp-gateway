@@ -1,60 +1,91 @@
 import { prisma } from '../config/prisma.js';
 import { logger } from '../config/logger.js';
+import { redis } from '../config/redis.js';
 import { enqueueSingle } from '../queue/index.js';
 import { shardForDevice } from '../cluster/deviceRouter.js';
 import { renderTemplate } from './messageBuilder.js';
+import { normalizeAutoReply, isWithinSchedule, pickReply } from './autoReplyPolicy.js';
 
-function isMatch(rule, text) {
-  const t = (text || '').trim().toLowerCase();
-  const k = (rule.keyword || '').trim().toLowerCase();
-  if (!k) return false;
-  switch (rule.matchType) {
-    case 'EXACT':
-      return t === k;
-    case 'STARTS_WITH':
-      return t.startsWith(k);
-    case 'REGEX':
-      // M10: batasi panjang pola & input untuk meredam ReDoS (regex katastrofik).
-      // Untuk proteksi penuh, ganti ke library re2 (linear-time).
-      if (!rule.keyword || rule.keyword.length > 200) return false;
-      try {
-        const sample = (text || '').slice(0, 1000);
-        return new RegExp(rule.keyword, 'i').test(sample);
-      } catch {
-        return false;
-      }
-    case 'CONTAINS':
-    default:
-      return t.includes(k);
-  }
+// Kebijakan (mode, jam kerja, pemilihan balasan) ada di services/autoReplyPolicy.js;
+// di sini penegakannya: jeda setelah balasan manual, cooldown per kontak, dan
+// rem anti-loop — semuanya di Redis agar konsisten antar proses/shard.
+
+const manualKey = (deviceId, party) => `wa:ar:manual:${deviceId}:${party}`;
+const cooldownKey = (deviceId, party, key) => `wa:ar:cd:${deviceId}:${party}:${key}`;
+const loopKey = (deviceId, party) => `wa:ar:loop:${deviceId}:${party}`;
+
+const MANUAL_TTL_S = 86400; // = batas atas pauseAfterManualMinutes (1440 mnt)
+// Rem anti-loop (mis. dua bot saling balas): maks balasan otomatis per kontak per jendela.
+const LOOP_WINDOW_S = 600;
+const LOOP_MAX = 10;
+
+// Catat bahwa manusia baru saja membalas `party` (nomor / id grup) lewat inbox
+// atau langsung dari HP. Auto-balas ke kontak itu diam selama
+// `pauseAfterManualMinutes` milik device.
+export async function markManualReply(deviceId, party) {
+  if (!deviceId || !party) return;
+  await redis.set(manualKey(deviceId, party), Date.now(), 'EX', MANUAL_TTL_S);
+}
+
+async function isPaused(deviceId, parties, minutes) {
+  if (!minutes) return false;
+  const values = await redis.mget(parties.map((p) => manualKey(deviceId, p)));
+  const last = Math.max(0, ...values.map((v) => Number(v) || 0));
+  return Date.now() - last < minutes * 60000;
 }
 
 // Dipanggil dari BaileysManager saat ada pesan masuk.
-// Mencari autoresponder yang cocok lalu mengantre balasan.
-export async function runAutoreply({ device, fromPhone, text, pushName }) {
-  if (!text) return;
-  // Multi-user: cocokkan autoresponder yang menyasar device ini secara spesifik,
-  // ATAU yang berlaku "semua device" (deviceId null) TAPI hanya milik pemilik device
-  // yang sama — agar aturan user A tidak terpicu di device milik user B.
-  const rules = await prisma.autoresponder.findMany({
-    where: {
-      isActive: true,
-      OR: [
-        { deviceId: device.id },
-        { deviceId: null, ownerId: device.ownerId },
-      ],
-    },
-    orderBy: [{ priority: 'desc' }, { id: 'asc' }],
-    include: { template: true },
-  });
+// `webhookResult`: promise respons webhook message.incoming (dipakai mode WEBHOOK).
+export async function runAutoreply({ device, fromPhone, text, pushName, isGroup = false, groupJid, lid, webhookResult }) {
+  const config = normalizeAutoReply(device.autoReply);
+  if (config.mode === 'OFF') return;
+  if (isGroup && !config.replyInGroups) return;
 
-  const matched = rules.find((r) => isMatch(r, text));
-  if (!matched) return;
+  // Lawan bicara = kunci thread inbox: id grup untuk grup, nomor untuk chat pribadi.
+  const party = isGroup ? String(groupJid).split('@')[0] : fromPhone;
+  if (!party) return;
+  if (await isPaused(device.id, [party, lid].filter(Boolean), config.pauseAfterManualMinutes)) return;
+
+  let rules = [];
+  if (config.mode === 'KEYWORD' && text) {
+    // Multi-user: cocokkan autoresponder yang menyasar device ini secara spesifik,
+    // ATAU yang berlaku "semua device" (deviceId null) TAPI hanya milik pemilik device
+    // yang sama — agar aturan user A tidak terpicu di device milik user B.
+    const scope = [{ deviceId: device.id }];
+    if (config.useGlobalRules) scope.push({ deviceId: null, ownerId: device.ownerId });
+    rules = await prisma.autoresponder.findMany({
+      where: { isActive: true, OR: scope },
+      orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+      include: { template: true },
+    });
+  }
+
+  const webhookReply = config.mode === 'WEBHOOK' ? (await webhookResult)?.reply : undefined;
+  const reply = pickReply({
+    config,
+    rules,
+    text,
+    withinHours: isWithinSchedule(config.schedule),
+    webhookReply,
+  });
+  if (!reply) return;
 
   const vars = { nama: pushName || fromPhone, name: pushName || fromPhone, nomor: fromPhone };
-  const bodyTemplate = matched.template?.body || matched.response || '';
-  const body = renderTemplate(bodyTemplate, vars);
+  // Balasan webhook sudah final dari aplikasi luar — jangan dirender sebagai template.
+  const body = reply.key === 'webhook' ? reply.template : renderTemplate(reply.template, vars);
   if (!body) return;
+
+  // Cooldown per kontak per jenis balasan (klaim atomik), lalu rem anti-loop.
+  if (reply.cooldownMinutes > 0) {
+    const claimed = await redis.set(cooldownKey(device.id, party, reply.key), 1, 'EX', reply.cooldownMinutes * 60, 'NX');
+    if (!claimed) return;
+  }
+  const count = await redis.incr(loopKey(device.id, party));
+  if (count === 1) await redis.expire(loopKey(device.id, party), LOOP_WINDOW_S);
+  if (count > LOOP_MAX) {
+    if (count === LOOP_MAX + 1) logger.warn({ deviceId: device.id, party }, 'Autoreply dihentikan sementara (rem anti-loop)');
+    return;
+  }
 
   const message = await prisma.message.create({
     data: {
@@ -62,17 +93,24 @@ export async function runAutoreply({ device, fromPhone, text, pushName }) {
       direction: 'OUTBOUND',
       type: 'TEXT',
       status: 'QUEUED',
-      to: fromPhone,
+      to: party,
       body,
-      meta: { autoresponderId: matched.id, kind: 'autoreply' },
+      meta: {
+        kind: 'autoreply',
+        autoReplyKey: reply.key,
+        ...(reply.ruleId ? { autoresponderId: reply.ruleId } : {}),
+        ...(isGroup ? { groupJid } : {}),
+      },
     },
   });
   await enqueueSingle(message.id, await shardForDevice(device.id));
-  await prisma.autoresponder
-    .update({ where: { id: matched.id }, data: { hitCount: { increment: 1 } } })
-    .catch(() => {});
+  if (reply.ruleId) {
+    await prisma.autoresponder
+      .update({ where: { id: reply.ruleId }, data: { hitCount: { increment: 1 } } })
+      .catch(() => {});
+  }
 
-  logger.info({ deviceId: device.id, ruleId: matched.id, to: fromPhone }, 'Autoreply terkirim ke antrean');
+  logger.info({ deviceId: device.id, reply: reply.key, to: party }, 'Autoreply terkirim ke antrean');
 }
 
-export default { runAutoreply };
+export default { runAutoreply, markManualReply };
