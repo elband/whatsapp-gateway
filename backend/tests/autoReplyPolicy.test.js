@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeAutoReply, isWithinSchedule, isMatch, pickReply, DEFAULT_AUTO_REPLY } from '../src/services/autoReplyPolicy.js';
+import { normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply, DEFAULT_AUTO_REPLY } from '../src/services/autoReplyPolicy.js';
 
 describe('normalizeAutoReply', () => {
   it('NULL / bukan objek → default (perilaku lama: keyword + aturan global)', () => {
@@ -101,5 +101,27 @@ describe('pickReply', () => {
     expect(pickReply({ config: c, rules, text: 'harga', webhookReply: '   ' })).toBeNull();
     expect(pickReply({ config: c, rules, text: 'harga', webhookReply: { a: 1 } })).toBeNull();
     expect(pickReply({ config: c, rules, text: 'harga' })).toBeNull();
+  });
+});
+
+describe('pickCallReply', () => {
+  const cfg = (over) => normalizeAutoReply(over);
+  const rules = [
+    { id: 3, response: '' },
+    { id: 4, response: 'Maaf, telepon belum terangkat' },
+    { id: 5, response: 'lain' },
+  ];
+
+  it('OFF tidak membalas; mode lain memakai aturan pertama yang punya isi', () => {
+    expect(pickCallReply({ config: cfg({ mode: 'OFF' }), rules })).toBeNull();
+    for (const mode of ['KEYWORD', 'AWAY', 'WEBHOOK']) {
+      expect(pickCallReply({ config: cfg({ mode, awayMessage: 'x', noticeCooldownMinutes: 15 }), rules })).toEqual({
+        template: 'Maaf, telepon belum terangkat', key: 'call:4', cooldownMinutes: 15, ruleId: 4,
+      });
+    }
+  });
+  it('template mengalahkan response; tanpa aturan → null', () => {
+    expect(pickCallReply({ config: cfg({}), rules: [{ id: 1, response: 'a', template: { body: 'T' } }] }).template).toBe('T');
+    expect(pickCallReply({ config: cfg({}), rules: [] })).toBeNull();
   });
 });

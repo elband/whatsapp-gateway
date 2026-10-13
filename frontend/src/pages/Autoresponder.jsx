@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, Search, Edit2, Trash2, Bot } from 'lucide-react'
+import { Plus, Search, Edit2, Trash2, Bot, PhoneMissed } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { msgOf } from '../lib/api'
 import PageHeader from '../components/PageHeader'
@@ -12,6 +12,11 @@ import EmptyState from '../components/EmptyState'
 import Pagination from '../components/Pagination'
 
 const MATCH_TYPES = ['EXACT', 'CONTAINS', 'STARTS_WITH', 'REGEX']
+const TRIGGER_TYPES = [
+  { value: 'MESSAGE', label: 'Pesan masuk (keyword)' },
+  { value: 'MISSED_CALL', label: 'Panggilan tak terjawab' },
+]
+const isCall = (r) => r?.triggerType === 'MISSED_CALL'
 
 export default function Autoresponder() {
   const [rows, setRows] = useState([])
@@ -54,8 +59,21 @@ export default function Autoresponder() {
 
   const columns = [
     { key: 'name', header: 'Name', render: (r) => <span className="font-medium text-slate-800">{r.name}</span> },
-    { key: 'keyword', header: 'Keyword', render: (r) => <span className="text-slate-600">{r.keyword}</span> },
-    { key: 'matchType', header: 'Match', render: (r) => <Badge tone="blue">{r.matchType}</Badge> },
+    {
+      key: 'keyword',
+      header: 'Keyword',
+      render: (r) =>
+        isCall(r) ? (
+          <span className="inline-flex items-center gap-1 text-slate-600"><PhoneMissed size={14} /> Panggilan tak terjawab</span>
+        ) : (
+          <span className="text-slate-600">{r.keyword}</span>
+        ),
+    },
+    {
+      key: 'matchType',
+      header: 'Match',
+      render: (r) => (isCall(r) ? <span className="text-slate-400">—</span> : <Badge tone="blue">{r.matchType}</Badge>),
+    },
     {
       key: 'scope',
       header: 'Scope',
@@ -89,7 +107,7 @@ export default function Autoresponder() {
     <div>
       <PageHeader
         title="Autoresponder"
-        subtitle="Balas pesan masuk otomatis berdasarkan kata kunci"
+        subtitle="Balas otomatis pesan masuk berdasarkan kata kunci, atau panggilan yang tidak terangkat"
         actions={
           <button className="btn-primary" onClick={() => setEditing({})}>
             <Plus size={16} /> New Autoresponder
@@ -143,6 +161,7 @@ function AutoresponderModal({ item, onClose, onSaved }) {
     setForm({
       name: item.name || '',
       deviceId: item.deviceId || '',
+      triggerType: item.triggerType || 'MESSAGE',
       keyword: item.keyword || '',
       matchType: item.matchType || 'CONTAINS',
       response: item.response || '',
@@ -157,14 +176,16 @@ function AutoresponderModal({ item, onClose, onSaved }) {
 
   const save = async () => {
     if (!form.name?.trim()) return toast.error('Name is required')
-    if (!form.keyword?.trim()) return toast.error('Keyword is required')
+    const call = isCall(form)
+    if (!call && !form.keyword?.trim()) return toast.error('Keyword is required')
     if (!form.response?.trim()) return toast.error('Response is required')
     setSaving(true)
     try {
       const payload = {
         name: form.name,
         deviceId: form.deviceId ? Number(form.deviceId) : null,
-        keyword: form.keyword,
+        triggerType: form.triggerType,
+        keyword: call ? '' : form.keyword,
         matchType: form.matchType,
         response: form.response,
         priority: Number(form.priority) || 0,
@@ -212,11 +233,27 @@ function AutoresponderModal({ item, onClose, onSaved }) {
               ))}
             </select>
             <p className="mt-1 text-xs text-slate-400">
-              Aturan hanya jalan di device ber-mode auto-balas Keyword (atur di halaman Devices).
+              {isCall(form)
+                ? 'Jalan di semua mode auto-balas device kecuali Mati (atur di halaman Devices).'
+                : 'Aturan hanya jalan di device ber-mode auto-balas Keyword (atur di halaman Devices).'}
             </p>
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className="label">Pemicu</label>
+          <select className="input" value={form.triggerType || 'MESSAGE'} onChange={(e) => setForm({ ...form, triggerType: e.target.value })}>
+            {TRIGGER_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+          {isCall(form) && (
+            <p className="mt-1 text-xs text-slate-400">
+              Dikirim saat panggilan suara/video WhatsApp ke device ini tidak diangkat atau ditolak. Penelepon yang sama
+              dibalas paling sering sekali per "jeda balasan default" device (bawaan 60 menit).
+            </p>
+          )}
+        </div>
+        <div className={isCall(form) ? 'hidden' : 'grid grid-cols-1 gap-4 sm:grid-cols-2'}>
           <div>
             <label className="label">Keyword *</label>
             <input className="input" value={form.keyword || ''} onChange={(e) => setForm({ ...form, keyword: e.target.value })} />
@@ -234,7 +271,7 @@ function AutoresponderModal({ item, onClose, onSaved }) {
           <label className="label">Response *</label>
           <textarea
             className="input min-h-[120px]"
-            placeholder="Halo {{nama}}, terima kasih sudah menghubungi kami."
+            placeholder={isCall(form) ? 'Halo {{nama}}, maaf telepon Anda belum bisa kami angkat. Silakan tulis keperluan Anda di sini.' : 'Halo {{nama}}, terima kasih sudah menghubungi kami.'}
             value={form.response || ''}
             onChange={(e) => setForm({ ...form, response: e.target.value })}
           />

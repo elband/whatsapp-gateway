@@ -4,7 +4,7 @@ import { redis } from '../config/redis.js';
 import { enqueueSingle } from '../queue/index.js';
 import { shardForDevice } from '../cluster/deviceRouter.js';
 import { renderTemplate } from './messageBuilder.js';
-import { normalizeAutoReply, isWithinSchedule, pickReply } from './autoReplyPolicy.js';
+import { normalizeAutoReply, isWithinSchedule, pickReply, pickCallReply } from './autoReplyPolicy.js';
 
 // Kebijakan (mode, jam kerja, pemilihan balasan) ada di services/autoReplyPolicy.js;
 // di sini penegakannya: jeda setelah balasan manual, cooldown per kontak, dan
@@ -54,7 +54,7 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
     const scope = [{ deviceId: device.id }];
     if (config.useGlobalRules) scope.push({ deviceId: null, ownerId: device.ownerId });
     rules = await prisma.autoresponder.findMany({
-      where: { isActive: true, OR: scope },
+      where: { isActive: true, triggerType: 'MESSAGE', OR: scope },
       orderBy: [{ priority: 'desc' }, { id: 'asc' }],
       include: { template: true },
     });
@@ -75,7 +75,46 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
   const body = reply.key === 'webhook' ? reply.template : renderTemplate(reply.template, vars);
   if (!body) return;
 
-  // Cooldown per kontak per jenis balasan (klaim atomik), lalu rem anti-loop.
+  await queueReply({ device, party, reply, body, meta: isGroup ? { groupJid } : {} });
+}
+
+// Dipanggil dari BaileysManager saat panggilan masuk berakhir tanpa diangkat.
+// `lidJid` diisi bila nomor asli pemanggil tidak diketahui (hanya alamat LID).
+export async function runMissedCallReply({ device, fromPhone, lidJid, isVideo = false }) {
+  const config = normalizeAutoReply(device.autoReply);
+  if (config.mode === 'OFF' || !fromPhone) return;
+  if (await isPaused(device.id, [fromPhone], config.pauseAfterManualMinutes)) return;
+
+  const scope = [{ deviceId: device.id }];
+  if (config.useGlobalRules) scope.push({ deviceId: null, ownerId: device.ownerId });
+  const rules = await prisma.autoresponder.findMany({
+    where: { isActive: true, triggerType: 'MISSED_CALL', OR: scope },
+    orderBy: [{ priority: 'desc' }, { id: 'asc' }],
+    include: { template: true },
+  });
+  const reply = pickCallReply({ config, rules });
+  if (!reply) return;
+
+  // Panggilan tidak membawa pushName — pakai nama dari buku kontak pemilik bila ada.
+  const contact = lidJid
+    ? null
+    : await prisma.contact.findFirst({ where: { ownerId: device.ownerId, phone: fromPhone }, select: { name: true } });
+  const nama = contact?.name || fromPhone;
+  const body = renderTemplate(reply.template, { nama, name: nama, nomor: fromPhone });
+  if (!body) return;
+
+  await queueReply({
+    device,
+    party: fromPhone,
+    reply,
+    body,
+    meta: { trigger: 'missed_call', isVideo, ...(lidJid ? { lidJid } : {}) },
+  });
+}
+
+// Cooldown per kontak per jenis balasan (klaim atomik), rem anti-loop, lalu
+// masukkan balasan ke antrean kirim.
+async function queueReply({ device, party, reply, body, meta = {} }) {
   if (reply.cooldownMinutes > 0) {
     const claimed = await redis.set(cooldownKey(device.id, party, reply.key), 1, 'EX', reply.cooldownMinutes * 60, 'NX');
     if (!claimed) return;
@@ -99,7 +138,7 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
         kind: 'autoreply',
         autoReplyKey: reply.key,
         ...(reply.ruleId ? { autoresponderId: reply.ruleId } : {}),
-        ...(isGroup ? { groupJid } : {}),
+        ...meta,
       },
     },
   });
@@ -113,4 +152,4 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
   logger.info({ deviceId: device.id, reply: reply.key, to: party }, 'Autoreply terkirim ke antrean');
 }
 
-export default { runAutoreply, markManualReply };
+export default { runAutoreply, runMissedCallReply, markManualReply };

@@ -7,6 +7,9 @@
 // - KEYWORD : aturan keyword (tabel autoresponders) + balasan default opsional.
 // - AWAY    : diam saat jam kerja, kirim pesan "di luar jam kerja" di luar itu.
 // - WEBHOOK : balasan ditentukan aplikasi luar lewat respons webhook message.incoming.
+//
+// Di luar mode: aturan ber-triggerType MISSED_CALL membalas panggilan yang tidak
+// terangkat pada semua mode selain OFF (lihat pickCallReply).
 
 export const AUTO_REPLY_MODES = ['OFF', 'KEYWORD', 'AWAY', 'WEBHOOK'];
 export const AUTO_REPLY_TIMEZONES = ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura']; // WIB, WITA, WIT
@@ -135,7 +138,19 @@ export function pickReply({ config, rules = [], text, withinHours, webhookReply 
   }
 }
 
+// Tentukan balasan untuk panggilan tak terjawab. `rules` = aturan ber-triggerType
+// MISSED_CALL, sudah terurut prioritas. Berlaku di semua mode kecuali OFF, dan
+// memakai jeda "notice" agar penelepon berulang tidak dibalas berkali-kali.
+export function pickCallReply({ config, rules = [] }) {
+  if (config.mode === 'OFF') return null;
+  for (const rule of rules) {
+    const template = rule.template?.body || rule.response || '';
+    if (template) return { template, key: `call:${rule.id}`, cooldownMinutes: config.noticeCooldownMinutes, ruleId: rule.id };
+  }
+  return null;
+}
+
 export default {
   AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH,
-  normalizeAutoReply, isWithinSchedule, isMatch, pickReply,
+  normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply,
 };

@@ -11,7 +11,8 @@ import { useDbAuthState } from './useDbAuthState.js';
 import * as socket from '../realtime/emit.js';
 import { dispatchWebhook } from '../services/webhookService.js';
 import { writeLog } from '../services/logService.js';
-import { runAutoreply, markManualReply } from '../services/autoresponderService.js';
+import { runAutoreply, runMissedCallReply, markManualReply } from '../services/autoresponderService.js';
+import { parseCallNode, createCallTracker } from '../services/missedCall.js';
 import { fromJid } from '../utils/phone.js';
 
 const {
@@ -124,6 +125,13 @@ class BaileysManager {
       );
       sock.ev.on('messages.update', (updates) =>
         this.handleMessageUpdate(devicePk, updates).catch(() => {}),
+      );
+      // Panggilan masuk: pakai node mentah (bukan ev 'call') — lihat services/missedCall.js.
+      const callTracker = createCallTracker();
+      sock.ws.on('CB:call', (node) =>
+        this.handleCall(devicePk, callTracker, node).catch((e) =>
+          logger.warn({ e: e.message, devicePk }, 'Balasan panggilan tak terjawab gagal'),
+        ),
       );
 
       await this.updateDeviceStatus(devicePk, { status: 'CONNECTING' });
@@ -280,6 +288,24 @@ class BaileysManager {
         webhookResult,
       }).catch((e) => logger.warn({ e: e.message }, 'Autoreply gagal'));
     }
+  }
+
+  // Balas panggilan pribadi yang berakhir tanpa diangkat (aturan MISSED_CALL).
+  async handleCall(devicePk, callTracker, node) {
+    const missed = callTracker.track(parseCallNode(node));
+    if (!missed) return;
+    const device = await prisma.device.findUnique({ where: { id: devicePk } });
+    if (!device) return;
+
+    // Pemanggil bisa beralamat LID; utamakan nomor asli (caller_pn) agar balasan
+    // masuk ke thread nomor yang sama. Tanpa itu, balas langsung ke alamat LID.
+    const isLid = String(missed.from).endsWith('@lid');
+    const fromPhone = fromJid(isLid ? missed.callerPn || missed.from : missed.from);
+    if (!fromPhone || fromPhone === device.phoneNumber) return;
+    const lidJid = isLid && !missed.callerPn ? `${fromPhone}@lid` : undefined;
+
+    logger.info({ devicePk, from: fromPhone, reason: missed.reason, isVideo: missed.isVideo }, 'Panggilan tak terjawab');
+    await runMissedCallReply({ device, fromPhone, lidJid, isVideo: missed.isVideo });
   }
 
   async handleMessageUpdate(devicePk, updates) {

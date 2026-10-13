@@ -19,9 +19,10 @@ async function assertTemplateOwnedById(templateId, user) {
   if (!user?.isSuperAdmin && tpl.ownerId !== user.id) throw ApiError.notFound('Template tidak ditemukan');
 }
 
-export async function list({ skip, limit, search, deviceId }, user) {
+export async function list({ skip, limit, search, deviceId, triggerType }, user) {
   const where = { ...ownerWhere(user) };
   if (deviceId) where.deviceId = Number(deviceId);
+  if (triggerType === 'MESSAGE' || triggerType === 'MISSED_CALL') where.triggerType = triggerType;
   if (search) where.OR = [{ name: { contains: search } }, { keyword: { contains: search } }];
   const [items, total] = await Promise.all([
     prisma.autoresponder.findMany({
@@ -47,7 +48,8 @@ export async function create(data, user) {
     data: {
       name: data.name,
       deviceId: data.deviceId ?? null,
-      keyword: data.keyword,
+      triggerType: data.triggerType || 'MESSAGE',
+      keyword: data.keyword ?? '',
       matchType: data.matchType || 'CONTAINS',
       response: data.response,
       templateId: data.templateId ?? null,
@@ -61,14 +63,20 @@ export async function create(data, user) {
 }
 
 export async function update(id, data, user) {
-  await get(id, user);
+  const current = await get(id, user);
   if (data.deviceId !== undefined) await assertDeviceOwnedById(data.deviceId, user);
   if (data.templateId !== undefined) await assertTemplateOwnedById(data.templateId, user);
+  // Aturan pesan masuk tetap wajib punya keyword setelah perubahan diterapkan.
+  const triggerType = data.triggerType ?? current.triggerType;
+  if (triggerType === 'MESSAGE' && !(data.keyword ?? current.keyword).trim()) {
+    throw ApiError.badRequest('Keyword wajib diisi');
+  }
   const item = await prisma.autoresponder.update({
     where: { id },
     data: {
       name: data.name,
       deviceId: data.deviceId,
+      triggerType: data.triggerType,
       keyword: data.keyword,
       matchType: data.matchType,
       response: data.response,

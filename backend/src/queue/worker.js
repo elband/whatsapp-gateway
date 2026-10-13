@@ -57,15 +57,22 @@ async function processSingle(job, token) {
   }
 
   // Auto-balas di grup menyimpan JID grup di meta.groupJid (di-set server-side saja).
+  // Balasan panggilan tak terjawab dari pemanggil ber-LID tanpa nomor asli memakai
+  // meta.lidJid — alamat LID tidak bisa dicek lewat onWhatsApp, jadi dikirim langsung.
   const groupJid = message.meta?.kind === 'autoreply' ? message.meta?.groupJid : null;
-  const jid = groupJid && String(groupJid).endsWith('@g.us') ? groupJid : toJid(message.to);
+  const lidJid = message.meta?.kind === 'autoreply' ? message.meta?.lidJid : null;
+  const jid = groupJid && String(groupJid).endsWith('@g.us')
+    ? groupJid
+    : lidJid && String(lidJid).endsWith('@lid')
+      ? lidJid
+      : toJid(message.to);
   if (!jid) throw new Error('Nomor tujuan tidak valid');
 
   // Verifikasi nomor terdaftar di WhatsApp & pakai JID kanonik hasil resolusi.
   // Mencegah status "SENT" palsu: jika nomor tidak punya WhatsApp, Baileys tetap
   // menerima pesan & mengembalikan key.id, tapi pesan tak pernah terkirim.
   let targetJid = jid;
-  if (message.type !== 'GROUP' && !String(jid).endsWith('@g.us')) {
+  if (message.type !== 'GROUP' && !String(jid).endsWith('@g.us') && !String(jid).endsWith('@lid')) {
     const resolved = await baileysManager.checkNumber(message.deviceId, jid);
     if (!resolved) throw new Error('Nomor tidak terdaftar di WhatsApp');
     targetJid = resolved;

@@ -428,12 +428,20 @@ enum MatchType {
   REGEX
 }
 
+// Pemicu aturan: pesan masuk yang cocok keyword, atau panggilan WhatsApp yang
+// tidak terangkat (keyword tidak dipakai).
+enum AutoresponderTrigger {
+  MESSAGE
+  MISSED_CALL
+}
+
 model Autoresponder {
   id         Int       @id @default(autoincrement())
   name       String
   deviceId   Int?      // null = berlaku untuk semua device
   device     Device?   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  keyword    String
+  triggerType AutoresponderTrigger @default(MESSAGE)
+  keyword    String    // kosong untuk triggerType MISSED_CALL
   matchType  MatchType @default(CONTAINS)
   response   String    @db.Text
   templateId Int?
