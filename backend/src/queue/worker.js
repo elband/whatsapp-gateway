@@ -13,6 +13,7 @@ import { dispatchWebhook } from '../services/webhookService.js';
 import { uploadRoot } from '../middlewares/upload.js';
 import { rand, typingDelayMs, effectiveBatchSize, msUntilNextDay } from '../services/sendPolicy.js';
 import { reserveSendSlot, claimDailyRecipient } from '../services/sendLimiter.js';
+import { repliedManuallySince } from '../services/autoresponderService.js';
 
 function resolveMedia(p) {
   if (!p) return null;
@@ -64,6 +65,14 @@ async function processSingle(job, token) {
   // Sebelum antre slot: balasan basi tidak boleh ikut memakan giliran kirim device.
   if (isAutoreply && Date.now() - new Date(message.createdAt).getTime() > AUTOREPLY_MAX_AGE_MS) {
     await failForGood(messageId, 'Balasan otomatis kedaluwarsa (terlalu lama di antrean)');
+  }
+  // Balasan yang ditunda (replyDelaySeconds): batal bila selama jeda manusia sudah
+  // membalas kontak ini dari Inbox / HP. Pesan dihapus — tidak pernah benar-benar ada.
+  if (isAutoreply && Array.isArray(message.meta?.waitForManual)
+    && await repliedManuallySince(message.deviceId, message.meta.waitForManual, new Date(message.createdAt).getTime())) {
+    await prisma.message.delete({ where: { id: messageId } }).catch(() => {});
+    logger.info({ deviceId: message.deviceId, to: message.to }, 'Autoreply dibatalkan: sudah dibalas manual');
+    return;
   }
   const typingMs = typingDelayMs(message.body || message.caption || '', { otp: isOtp });
   if (!isOtp) {

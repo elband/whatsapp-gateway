@@ -39,6 +39,7 @@ const AUTO_REPLY_DEFAULT = {
   cooldownMinutes: 0,
   noticeCooldownMinutes: 60,
   pauseAfterManualMinutes: 0,
+  replyDelaySeconds: 60,
   fallbackMessage: '',
   awayMessage: '',
   signature: '_Ini adalah Pesan dari System:_\n*WhatsApp Gateway Enterprise*',
@@ -486,6 +487,7 @@ function AutoReplyModal({ device, onClose, onSaved }) {
           cooldownMinutes: Number(form.cooldownMinutes) || 0,
           noticeCooldownMinutes: Number(form.noticeCooldownMinutes) || 60,
           pauseAfterManualMinutes: Number(form.pauseAfterManualMinutes) || 0,
+          replyDelaySeconds: Math.min(600, Math.max(0, Number(form.replyDelaySeconds) || 0)),
           schedule: {
             ...form.schedule,
             days: form.schedule.days.length ? form.schedule.days : AUTO_REPLY_DEFAULT.schedule.days,
@@ -682,6 +684,21 @@ function AutoReplyModal({ device, onClose, onSaved }) {
               <p className="mt-1 text-xs text-slate-400">
                 Ditempel di bawah semua balasan otomatis device ini (keyword, balasan default, di luar jam kerja,
                 panggilan tak terjawab). Format WhatsApp: _miring_, *tebal*. Kosongkan untuk mematikan.
+              </p>
+            </div>
+            <div>
+              <label className="label">Tunggu sebelum auto-balas (detik)</label>
+              <input
+                type="number"
+                min="0"
+                max="600"
+                className="input"
+                value={form.replyDelaySeconds}
+                onChange={(e) => set({ replyDelaySeconds: e.target.value })}
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                Beri kesempatan Anda membalas sendiri dulu. Jika dalam waktu ini Anda membalas dari Inbox atau HP, balasan
+                otomatis dibatalkan. 0 = langsung dibalas. Maks 600.
               </p>
             </div>
             <div>

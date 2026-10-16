@@ -15,6 +15,8 @@ export const AUTO_REPLY_MODES = ['OFF', 'KEYWORD', 'AWAY', 'WEBHOOK'];
 export const AUTO_REPLY_TIMEZONES = ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura']; // WIB, WITA, WIT
 export const MAX_REPLY_LENGTH = 4096;
 export const MAX_SIGNATURE_LENGTH = 500;
+// Batas jeda tunggu; harus jauh di bawah umur maksimal balasan di antrean (worker: 15 mnt).
+export const MAX_REPLY_DELAY_S = 600;
 // Penanda di akhir setiap balasan otomatis (format WhatsApp: _miring_, *tebal*).
 export const DEFAULT_SIGNATURE = '_Ini adalah Pesan dari System:_\n*WhatsApp Gateway Enterprise*';
 
@@ -27,6 +29,7 @@ export const DEFAULT_AUTO_REPLY = Object.freeze({
   cooldownMinutes: 0, // jeda keyword yang sama per kontak (0 = selalu balas)
   noticeCooldownMinutes: 60, // jeda balasan default / di luar jam kerja per kontak
   pauseAfterManualMinutes: 0, // diam setelah manusia membalas (0 = nonaktif)
+  replyDelaySeconds: 60, // tunggu dulu; batal bila manusia membalas dalam jeda ini (0 = langsung)
   fallbackMessage: '',
   awayMessage: '',
   signature: DEFAULT_SIGNATURE, // ditempel di akhir balasan otomatis ('' = tanpa penanda)
@@ -55,6 +58,7 @@ export function normalizeAutoReply(raw) {
     cooldownMinutes: intIn(r.cooldownMinutes, 0, 1440, d.cooldownMinutes),
     noticeCooldownMinutes: intIn(r.noticeCooldownMinutes, 1, 1440, d.noticeCooldownMinutes),
     pauseAfterManualMinutes: intIn(r.pauseAfterManualMinutes, 0, 1440, d.pauseAfterManualMinutes),
+    replyDelaySeconds: intIn(r.replyDelaySeconds, 0, MAX_REPLY_DELAY_S, d.replyDelaySeconds),
     fallbackMessage: str(r.fallbackMessage),
     awayMessage: str(r.awayMessage),
     // Profil lama (belum punya field ini) ikut default; string kosong = sengaja dimatikan.
@@ -165,6 +169,6 @@ export function pickCallReply({ config, rules = [] }) {
 }
 
 export default {
-  AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH, MAX_SIGNATURE_LENGTH, DEFAULT_SIGNATURE,
+  AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH, MAX_SIGNATURE_LENGTH, MAX_REPLY_DELAY_S, DEFAULT_SIGNATURE,
   normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply, appendSignature,
 };

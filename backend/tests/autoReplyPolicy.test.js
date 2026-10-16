@@ -18,6 +18,12 @@ describe('normalizeAutoReply', () => {
     expect(c.pauseAfterManualMinutes).toBe(30);
     expect(c.schedule).toEqual({ days: [6], start: '08:00', end: '21:30', timeZone: 'Asia/Jakarta' });
   });
+  it('replyDelaySeconds: default 60, 0 = langsung, di luar batas → default', () => {
+    expect(normalizeAutoReply(null).replyDelaySeconds).toBe(60);
+    expect(normalizeAutoReply({ replyDelaySeconds: 0 }).replyDelaySeconds).toBe(0);
+    expect(normalizeAutoReply({ replyDelaySeconds: 120 }).replyDelaySeconds).toBe(120);
+    expect(normalizeAutoReply({ replyDelaySeconds: 9999 }).replyDelaySeconds).toBe(60);
+  });
   it('mode tak dikenal → KEYWORD', () => {
     expect(normalizeAutoReply({ mode: 'AI' }).mode).toBe('KEYWORD');
   });

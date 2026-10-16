@@ -27,11 +27,22 @@ export async function markManualReply(deviceId, party) {
   await redis.set(manualKey(deviceId, party), Date.now(), 'EX', MANUAL_TTL_S);
 }
 
+async function lastManualReply(deviceId, parties) {
+  const values = await redis.mget(parties.map((p) => manualKey(deviceId, p)));
+  return Math.max(0, ...values.map((v) => Number(v) || 0));
+}
+
 async function isPaused(deviceId, parties, minutes) {
   if (!minutes) return false;
-  const values = await redis.mget(parties.map((p) => manualKey(deviceId, p)));
-  const last = Math.max(0, ...values.map((v) => Number(v) || 0));
-  return Date.now() - last < minutes * 60000;
+  return Date.now() - (await lastManualReply(deviceId, parties)) < minutes * 60000;
+}
+
+// Dipakai worker sebelum mengirim balasan yang ditunda (replyDelaySeconds):
+// apakah manusia sudah membalas salah satu `parties` sejak `sinceMs`?
+export async function repliedManuallySince(deviceId, parties, sinceMs) {
+  const list = (parties || []).filter(Boolean);
+  if (!deviceId || !list.length) return false;
+  return (await lastManualReply(deviceId, list)) >= sinceMs;
 }
 
 // Dipanggil dari BaileysManager saat ada pesan masuk.
@@ -78,7 +89,15 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
   // Pengirim hanya dikenal lewat LID (nomor asli tidak ikut terkirim): `party` berisi
   // id LID, bukan nomor — balasan harus dialamatkan ke JID LID-nya (lihat worker).
   const lidOnly = !isGroup && lid && lid === fromPhone;
-  await queueReply({ device, party, reply, body, meta: isGroup ? { groupJid } : lidOnly ? { lidJid: `${lid}@lid` } : {} });
+  await queueReply({
+    device,
+    party,
+    reply,
+    body,
+    delaySeconds: config.replyDelaySeconds,
+    manualParties: [party, lid].filter(Boolean),
+    meta: isGroup ? { groupJid } : lidOnly ? { lidJid: `${lid}@lid` } : {},
+  });
 }
 
 // Dipanggil dari BaileysManager saat panggilan masuk berakhir tanpa diangkat.
@@ -111,13 +130,16 @@ export async function runMissedCallReply({ device, fromPhone, lidJid, isVideo = 
     party: fromPhone,
     reply,
     body,
+    delaySeconds: config.replyDelaySeconds,
+    manualParties: [fromPhone, lidJid && String(lidJid).split('@')[0]].filter(Boolean),
     meta: { trigger: 'missed_call', isVideo, ...(lidJid ? { lidJid } : {}) },
   });
 }
 
 // Cooldown per kontak per jenis balasan (klaim atomik), rem anti-loop, lalu
-// masukkan balasan ke antrean kirim.
-async function queueReply({ device, party, reply, body, meta = {} }) {
+// masukkan balasan ke antrean kirim. `delaySeconds` > 0: job ditunda dan worker
+// membatalkannya bila dalam jeda itu manusia membalas salah satu `manualParties`.
+async function queueReply({ device, party, reply, body, delaySeconds = 0, manualParties = [], meta = {} }) {
   if (reply.cooldownMinutes > 0) {
     const claimed = await redis.set(cooldownKey(device.id, party, reply.key), 1, 'EX', reply.cooldownMinutes * 60, 'NX');
     if (!claimed) return;
@@ -141,18 +163,19 @@ async function queueReply({ device, party, reply, body, meta = {} }) {
         kind: 'autoreply',
         autoReplyKey: reply.key,
         ...(reply.ruleId ? { autoresponderId: reply.ruleId } : {}),
+        ...(delaySeconds > 0 ? { waitForManual: manualParties } : {}),
         ...meta,
       },
     },
   });
-  await enqueueSingle(message.id, await shardForDevice(device.id));
+  await enqueueSingle(message.id, await shardForDevice(device.id), delaySeconds > 0 ? { delay: delaySeconds * 1000 } : {});
   if (reply.ruleId) {
     await prisma.autoresponder
       .update({ where: { id: reply.ruleId }, data: { hitCount: { increment: 1 } } })
       .catch(() => {});
   }
 
-  logger.info({ deviceId: device.id, reply: reply.key, to: party }, 'Autoreply terkirim ke antrean');
+  logger.info({ deviceId: device.id, reply: reply.key, to: party, delaySeconds }, 'Autoreply terkirim ke antrean');
 }
 
-export default { runAutoreply, runMissedCallReply, markManualReply };
+export default { runAutoreply, runMissedCallReply, markManualReply, repliedManuallySince };
