@@ -31,3 +31,6 @@ backend/prisma/*.db
 # OS
 .DS_Store
 Thumbs.db
+
+# Commit terakhir yang dipasang scripts/update.sh
+.last-deployed

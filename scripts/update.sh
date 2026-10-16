@@ -6,7 +6,7 @@
 #   bash scripts/update.sh
 #
 # Opsi (variabel lingkungan):
-#   FORCE=1         tetap jalan walau tidak ada commit baru (mis. setelah ubah .env)
+#   FORCE=1         tetap jalan walau commit ini sudah terpasang (mis. setelah ubah .env)
 #   NO_PULL=1       jangan git pull; bangun commit yang sedang ter-checkout (rollback)
 #   SKIP_BACKUP=1   lewati backup database (tidak disarankan)
 #   SKIP_SEED=1     jangan isi data awal autoresponder (scripts/seed-autoresponders.sql)
@@ -34,6 +34,12 @@ PORT=$(grep -E '^PORT=' backend/.env | tail -1 | cut -d '=' -f2- | tr -d '"\r ' 
 PORT="${PORT:-4000}"
 HEALTH_URL="http://127.0.0.1:${PORT}/health"
 
+# Commit yang terakhir BERHASIL dipasang (ditulis setelah health check lolos).
+# Dibandingkan dengan ini — bukan dengan HEAD sebelum pull — agar `git pull`
+# manual sebelum menjalankan skrip ini tidak membuat update dilewati.
+STATE_FILE="${APP_DIR}/.last-deployed"
+DEPLOYED=$(cat "$STATE_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+
 BEFORE=$(git rev-parse HEAD)
 if [ "${NO_PULL:-0}" = "1" ]; then
   step "Tanpa git pull (NO_PULL=1) — membangun commit ${BEFORE:0:7}"
@@ -43,11 +49,17 @@ else
   git pull --ff-only
 fi
 AFTER=$(git rev-parse HEAD)
-if [ "$BEFORE" = "$AFTER" ] && [ "${FORCE:-0}" != "1" ]; then
-  echo "Tidak ada commit baru (${AFTER:0:7}). Jalankan dengan FORCE=1 untuk tetap membangun ulang."
+if [ "$DEPLOYED" = "$AFTER" ] && [ "${FORCE:-0}" != "1" ]; then
+  echo "Commit ${AFTER:0:7} sudah terpasang. Jalankan dengan FORCE=1 untuk tetap membangun ulang."
   exit 0
 fi
-git --no-pager log --oneline "${BEFORE}..${AFTER}" || true
+# Titik awal: commit terpasang terakhir bila dikenal git; selain itu HEAD sebelum pull.
+if [ -n "$DEPLOYED" ] && git cat-file -e "${DEPLOYED}^{commit}" 2>/dev/null; then
+  BEFORE="$DEPLOYED"
+fi
+if [ "$BEFORE" != "$AFTER" ]; then
+  git --no-pager log --oneline "${BEFORE}..${AFTER}" || true
+fi
 
 # Backup SEBELUM migrasi; gagal backup = berhenti (aplikasi lama masih berjalan).
 if [ "${SKIP_BACKUP:-0}" = "1" ]; then
@@ -99,6 +111,7 @@ step "Cek health ${HEALTH_URL}"
 for i in $(seq 1 30); do
   if curl -sf --max-time 5 "$HEALTH_URL" >/dev/null; then
     echo "Sehat: $(curl -s --max-time 5 "$HEALTH_URL")"
+    echo "$AFTER" > "$STATE_FILE"
     echo
     echo "Update selesai: ${BEFORE:0:7} -> ${AFTER:0:7}"
     exit 0
