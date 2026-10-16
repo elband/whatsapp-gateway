@@ -39,7 +39,7 @@ const AUTO_REPLY_DEFAULT = {
   cooldownMinutes: 0,
   noticeCooldownMinutes: 60,
   pauseAfterManualMinutes: 0,
-  replyDelaySeconds: 60,
+  replyDelaySeconds: 120,
   fallbackMessage: '',
   awayMessage: '',
   signature: '_Ini adalah Pesan dari System:_\n*WhatsApp Gateway Enterprise*',

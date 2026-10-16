@@ -29,7 +29,7 @@ export const DEFAULT_AUTO_REPLY = Object.freeze({
   cooldownMinutes: 0, // jeda keyword yang sama per kontak (0 = selalu balas)
   noticeCooldownMinutes: 60, // jeda balasan default / di luar jam kerja per kontak
   pauseAfterManualMinutes: 0, // diam setelah manusia membalas (0 = nonaktif)
-  replyDelaySeconds: 60, // tunggu dulu; batal bila manusia membalas dalam jeda ini (0 = langsung)
+  replyDelaySeconds: 120, // tunggu dulu; batal bila manusia membalas dalam jeda ini (0 = langsung)
   fallbackMessage: '',
   awayMessage: '',
   signature: DEFAULT_SIGNATURE, // ditempel di akhir balasan otomatis ('' = tanpa penanda)
