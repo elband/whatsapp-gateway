@@ -19,9 +19,12 @@ async function assertTemplateOwnedById(templateId, user) {
   if (!user?.isSuperAdmin && tpl.ownerId !== user.id) throw ApiError.notFound('Template tidak ditemukan');
 }
 
-export async function list({ skip, limit, search, deviceId, triggerType }, user) {
+export async function list({ skip, limit, search, deviceId, triggerType, learned }, user) {
   const where = { ...ownerWhere(user) };
   if (deviceId) where.deviceId = Number(deviceId);
+  // learned=1: hanya aturan hasil belajar dari balasan manual; learned=0: hanya buatan sendiri.
+  if (learned === '1' || learned === 'true') where.learned = true;
+  if (learned === '0' || learned === 'false') where.learned = false;
   if (triggerType === 'MESSAGE' || triggerType === 'MISSED_CALL') where.triggerType = triggerType;
   if (search) where.OR = [{ name: { contains: search } }, { keyword: { contains: search } }];
   const [items, total] = await Promise.all([
@@ -55,6 +58,7 @@ export async function create(data, user) {
       templateId: data.templateId ?? null,
       isActive: data.isActive ?? true,
       priority: data.priority ?? 0,
+      sample: data.sample?.trim() || null,
       ownerId: user.id,
     },
   });
@@ -83,6 +87,7 @@ export async function update(id, data, user) {
       templateId: data.templateId,
       isActive: data.isActive,
       priority: data.priority,
+      sample: data.sample === undefined ? undefined : data.sample?.trim() || null,
     },
   });
   writeLog({ type: 'SYSTEM', action: 'autoresponder.update', message: item.name, userId: user?.id });

@@ -451,6 +451,8 @@ model Autoresponder {
   isActive   Boolean   @default(true)
   priority   Int       @default(0) // makin besar makin diutamakan
   hitCount   Int       @default(0)
+  learned    Boolean   @default(false) // dibuat otomatis dari balasan manual (services/autoLearnService.js)
+  sample     String?   @db.Text // contoh pertanyaan; pesan yang MIRIP (bukan hanya keyword) ikut dijawab
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 

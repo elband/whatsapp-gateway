@@ -3,6 +3,7 @@ import { ApiError } from '../../utils/ApiError.js';
 import { normalizePhone } from '../../utils/phone.js';
 import * as messageService from '../messages/message.service.js';
 import { markManualReply } from '../../services/autoresponderService.js';
+import { learnFromManualReply } from '../../services/autoLearnService.js';
 
 // Guard multi-user: pastikan device milik user (super admin bebas). Mengembalikan
 // device (memuat ownerId) agar bisa dipakai untuk scoping kontak.
@@ -88,6 +89,10 @@ export async function reply({ deviceId, phone, body }, user) {
   // Manusia mengambil alih percakapan: auto-balas ke kontak ini jeda sesuai
   // pauseAfterManualMinutes device.
   markManualReply(message.deviceId, message.to).catch(() => {});
+  prisma.device
+    .findUnique({ where: { id: message.deviceId } })
+    .then((device) => learnFromManualReply({ device, party: message.to, reply: body }))
+    .catch(() => {});
   return message;
 }
 

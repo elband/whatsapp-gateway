@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply, appendSignature, DEFAULT_AUTO_REPLY, DEFAULT_SIGNATURE } from '../src/services/autoReplyPolicy.js';
+import { normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply, appendSignature, learnedKeyword, personalizeReply, normalizeNumbers, isExcluded, DEFAULT_AUTO_REPLY, DEFAULT_SIGNATURE } from '../src/services/autoReplyPolicy.js';
 
 describe('normalizeAutoReply', () => {
   it('NULL / bukan objek → default (perilaku lama: keyword + aturan global)', () => {
@@ -149,5 +149,60 @@ describe('pickCallReply', () => {
   it('template mengalahkan response; tanpa aturan → null', () => {
     expect(pickCallReply({ config: cfg({}), rules: [{ id: 1, response: 'a', template: { body: 'T' } }] }).template).toBe('T');
     expect(pickCallReply({ config: cfg({}), rules: [] })).toBeNull();
+  });
+});
+
+describe('learnedKeyword', () => {
+  const kw = (t) => learnedKeyword(t);
+  const hit = (t, msg) => isMatch({ keyword: kw(t), matchType: 'REGEX' }, msg);
+  it('1–2 kata: harus seluruh pesan, tanda baca bebas', () => {
+    expect(hit('Ok', 'ok!')).toBe(true);
+    expect(hit('Ok', 'oke, besok saya ke sana')).toBe(false);
+    expect(hit('harga berapa?', 'Harga  berapa')).toBe(true);
+    expect(hit('harga berapa?', 'harga berapa kak')).toBe(false);
+  });
+  it('3+ kata: cukup terkandung, per kata utuh', () => {
+    expect(hit('kantor buka jam berapa', 'Pak, kantor buka jam berapa ya?')).toBe(true);
+    expect(hit('kantor buka jam berapa', 'kantornya buka jam berapa')).toBe(false);
+  });
+  it('pesan kosong / emoji / terlalu panjang → null', () => {
+    expect(kw('')).toBeNull();
+    expect(kw('👍')).toBeNull();
+    expect(kw('a')).toBeNull();
+    expect(kw('satu dua tiga empat lima enam tujuh delapan sembilan')).toBeNull();
+  });
+});
+
+describe('personalizeReply', () => {
+  it('nama kontak → {{nama}}', () => {
+    expect(personalizeReply('Siap Pak Budi, besok ya', 'budi')).toBe('Siap Pak {{nama}}, besok ya');
+  });
+  it('nama pendek / kosong tidak diganti', () => {
+    expect(personalizeReply(' oke ', 'Al')).toBe('oke');
+    expect(personalizeReply('oke (1)', '')).toBe('oke (1)');
+  });
+});
+
+describe('nomor dikecualikan', () => {
+  it('dinormalisasi & dicocokkan dengan nomor/LID/grup', () => {
+    expect(normalizeNumbers(['0812-3456-7890', '6281234567890', '', 'abc', 120363012345])).toEqual(['6281234567890', '120363012345']);
+    const config = normalizeAutoReply({ excludedNumbers: ['081234567890'] });
+    expect(isExcluded(config, ['6281234567890'])).toBe(true);
+    expect(isExcluded(config, ['6289999999999', undefined])).toBe(false);
+  });
+});
+
+describe('pickReply kemiripan', () => {
+  const config = normalizeAutoReply({ mode: 'KEYWORD', fallbackMessage: 'default' });
+  const rules = [{ id: 7, keyword: '^\W*harga\W+berapa\W*$', matchType: 'REGEX', response: 'Rp50rb', sample: 'harga berapa?' }];
+  it('pesan mirip dijawab aturan, bukan balasan default', () => {
+    expect(pickReply({ config, rules, text: 'brp harganya kak?' })?.ruleId).toBe(7);
+  });
+  it('tidak mirip → balasan default; kemiripan 0 = hanya keyword', () => {
+    expect(pickReply({ config, rules, text: 'kapan buka?' })?.key).toBe('fallback');
+    expect(pickReply({ config: { ...config, similarityPercent: 0 }, rules, text: 'brp harganya kak?' })?.key).toBe('fallback');
+  });
+  it('default jeda setelah dibalas manual 30 menit', () => {
+    expect(normalizeAutoReply(null).pauseAfterManualMinutes).toBe(30);
   });
 });

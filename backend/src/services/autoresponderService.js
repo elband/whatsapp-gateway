@@ -4,7 +4,7 @@ import { redis } from '../config/redis.js';
 import { enqueueSingle } from '../queue/index.js';
 import { shardForDevice } from '../cluster/deviceRouter.js';
 import { renderTemplate } from './messageBuilder.js';
-import { normalizeAutoReply, isWithinSchedule, pickReply, pickCallReply, appendSignature } from './autoReplyPolicy.js';
+import { normalizeAutoReply, isExcluded, isWithinSchedule, pickReply, pickCallReply, appendSignature } from './autoReplyPolicy.js';
 
 // Kebijakan (mode, jam kerja, pemilihan balasan) ada di services/autoReplyPolicy.js;
 // di sini penegakannya: jeda setelah balasan manual, cooldown per kontak, dan
@@ -55,6 +55,7 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
   // Lawan bicara = kunci thread inbox: id grup untuk grup, nomor untuk chat pribadi.
   const party = isGroup ? String(groupJid).split('@')[0] : fromPhone;
   if (!party) return;
+  if (isExcluded(config, [party, fromPhone, lid])) return;
   if (await isPaused(device.id, [party, lid].filter(Boolean), config.pauseAfterManualMinutes)) return;
 
   let rules = [];
@@ -105,6 +106,7 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
 export async function runMissedCallReply({ device, fromPhone, lidJid, isVideo = false }) {
   const config = normalizeAutoReply(device.autoReply);
   if (config.mode === 'OFF' || !fromPhone) return;
+  if (isExcluded(config, [fromPhone, lidJid && String(lidJid).split('@')[0]])) return;
   if (await isPaused(device.id, [fromPhone], config.pauseAfterManualMinutes)) return;
 
   const scope = [{ deviceId: device.id }];

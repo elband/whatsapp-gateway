@@ -38,8 +38,12 @@ const AUTO_REPLY_DEFAULT = {
   useGlobalRules: true,
   cooldownMinutes: 0,
   noticeCooldownMinutes: 60,
-  pauseAfterManualMinutes: 0,
+  pauseAfterManualMinutes: 30,
   replyDelaySeconds: 120,
+  learnFromReplies: false,
+  learnAutoActivate: false,
+  similarityPercent: 80,
+  excludedNumbers: [],
   fallbackMessage: '',
   awayMessage: '',
   signature: '_Ini adalah Pesan dari System:_\n*WhatsApp Gateway Enterprise*',
@@ -51,6 +55,8 @@ const TIMEZONES = [
   { value: 'Asia/Makassar', label: 'WITA' },
   { value: 'Asia/Jayapura', label: 'WIT' },
 ]
+const parseNumbers = (text) =>
+  [...new Set(String(text || '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean))]
 const autoReplyOf = (d) => ({
   ...AUTO_REPLY_DEFAULT,
   ...(d?.autoReply || {}),
@@ -481,13 +487,16 @@ function AutoReplyModal({ device, onClose, onSaved }) {
     if (form.mode === 'AWAY' && form.schedule.days.length === 0) return toast.error('Pilih minimal satu hari kerja')
     setSaving(true)
     try {
+      const { excludedNumbersText, ...rest } = form
       await api.put(`/devices/${device.id}`, {
         autoReply: {
-          ...form,
+          ...rest,
           cooldownMinutes: Number(form.cooldownMinutes) || 0,
           noticeCooldownMinutes: Number(form.noticeCooldownMinutes) || 60,
           pauseAfterManualMinutes: Number(form.pauseAfterManualMinutes) || 0,
           replyDelaySeconds: Math.min(600, Math.max(0, Number(form.replyDelaySeconds) || 0)),
+          similarityPercent: Number(form.similarityPercent) === 0 ? 0 : Math.min(100, Math.max(50, Number(form.similarityPercent) || 80)),
+          excludedNumbers: parseNumbers(excludedNumbersText ?? (form.excludedNumbers || []).join('\n')),
           schedule: {
             ...form.schedule,
             days: form.schedule.days.length ? form.schedule.days : AUTO_REPLY_DEFAULT.schedule.days,
@@ -712,12 +721,67 @@ function AutoReplyModal({ device, onClose, onSaved }) {
                 onChange={(e) => set({ pauseAfterManualMinutes: e.target.value })}
               />
               <p className="mt-1 text-xs text-slate-400">
-                Auto-balas ke sebuah kontak diam selama ini setelah Anda membalasnya dari Inbox atau langsung dari HP. 0 =
-                nonaktif.
+                Saat Anda sedang chat dengan seseorang (membalas dari Inbox atau HP), auto-balas ke kontak itu diam selama
+                ini. Kontak lain tetap dibalas. 0 = nonaktif.
               </p>
             </div>
           </div>
         )}
+
+        <div className="space-y-2 border-t border-slate-100 pt-4">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={form.learnFromReplies}
+              onChange={(e) => set({ learnFromReplies: e.target.checked })}
+            />
+            Pelajari dari balasan saya
+          </label>
+          <p className="text-xs text-slate-400">
+            Saat Anda membalas sendiri (dari HP atau Inbox) pesan pendek yang belum punya aturan, pasangan pesan → balasan
+            disimpan sebagai aturan baru di menu Autoresponder (bertanda "Dipelajari"). Hanya chat pribadi, maks 8 kata,
+            dan hanya balasan pertama dalam 30 menit. Nama kontak di balasan diganti {'{{nama}}'}.
+          </p>
+          {form.learnFromReplies && (
+            <label className="flex items-center gap-2 pl-6 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={form.learnAutoActivate}
+                onChange={(e) => set({ learnAutoActivate: e.target.checked })}
+              />
+              Langsung aktifkan aturan hasil belajar (tanpa ditinjau dulu)
+            </label>
+          )}
+          <div className="pt-2">
+            <label className="label">Kemiripan minimum (%)</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              className="input"
+              value={form.similarityPercent}
+              onChange={(e) => set({ similarityPercent: e.target.value })}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Aturan yang punya "contoh pertanyaan" (semua hasil belajar) juga menjawab pesan yang mirip, bukan hanya yang
+              cocok keyword. Makin tinggi makin ketat; 80 disarankan. 0 = hanya keyword. Rentang 50–100.
+            </p>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-100 pt-4">
+          <label className="label">Nomor yang tidak dibalas otomatis</label>
+          <textarea
+            className="input min-h-[80px] font-mono text-xs"
+            placeholder={'081234567890\n6289876543210'}
+            value={form.excludedNumbersText ?? (form.excludedNumbers || []).join('\n')}
+            onChange={(e) => set({ excludedNumbersText: e.target.value })}
+          />
+          <p className="mt-1 text-xs text-slate-400">
+            Satu nomor per baris (boleh dipisah koma). Nomor ini tidak pernah dibalas otomatis (pesan maupun panggilan) dan
+            percakapannya tidak dipelajari — cocok untuk keluarga atau atasan. Format 08xx atau 628xx sama saja.
+          </p>
+        </div>
       </div>
     </Modal>
   )

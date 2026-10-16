@@ -12,6 +12,7 @@ import * as socket from '../realtime/emit.js';
 import { dispatchWebhook } from '../services/webhookService.js';
 import { writeLog } from '../services/logService.js';
 import { runAutoreply, runMissedCallReply, markManualReply } from '../services/autoresponderService.js';
+import { rememberIncoming, learnFromManualReply } from '../services/autoLearnService.js';
 import { parseCallNode, createCallTracker } from '../services/missedCall.js';
 import { fromJid } from '../utils/phone.js';
 
@@ -226,6 +227,11 @@ class BaileysManager {
         const m = msg.message;
         if (m.conversation || m.extendedTextMessage || m.imageMessage || m.videoMessage || m.audioMessage || m.documentMessage || m.stickerMessage) {
           markManualReply(devicePk, fromJid(remoteJid)).catch(() => {});
+          const replyText = m.conversation || m.extendedTextMessage?.text;
+          if (replyText && !isJidGroup?.(remoteJid)) {
+            learnFromManualReply({ device, party: fromJid(remoteJid), reply: replyText, waMessageId: msg.key.id })
+              .catch((e) => logger.warn({ e: e.message }, 'Belajar dari balasan manual gagal'));
+          }
         }
         continue;
       }
@@ -287,6 +293,14 @@ class BaileysManager {
         lid: isLid ? fromJid(remoteJid) : undefined,
         webhookResult,
       }).catch((e) => logger.warn({ e: e.message }, 'Autoreply gagal'));
+      rememberIncoming({
+        device,
+        fromPhone,
+        lid: isLid ? fromJid(remoteJid) : undefined,
+        text: body,
+        pushName: msg.pushName,
+        isGroup,
+      }).catch(() => {});
     }
   }
 

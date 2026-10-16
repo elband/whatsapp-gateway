@@ -1,5 +1,5 @@
 import Joi from 'joi';
-import { AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH, MAX_SIGNATURE_LENGTH, MAX_REPLY_DELAY_S } from '../../services/autoReplyPolicy.js';
+import { AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH, MAX_SIGNATURE_LENGTH, MAX_REPLY_DELAY_S, MAX_EXCLUDED_NUMBERS } from '../../services/autoReplyPolicy.js';
 
 const hhmm = Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d$/).messages({ 'string.pattern.base': 'Format jam harus HH:mm' });
 const D = DEFAULT_AUTO_REPLY;
@@ -13,6 +13,10 @@ const autoReplySchema = Joi.object({
   noticeCooldownMinutes: Joi.number().integer().min(1).max(1440).default(D.noticeCooldownMinutes),
   pauseAfterManualMinutes: Joi.number().integer().min(0).max(1440).default(D.pauseAfterManualMinutes),
   replyDelaySeconds: Joi.number().integer().min(0).max(MAX_REPLY_DELAY_S).default(D.replyDelaySeconds),
+  learnFromReplies: Joi.boolean().default(D.learnFromReplies),
+  learnAutoActivate: Joi.boolean().default(D.learnAutoActivate),
+  similarityPercent: Joi.alternatives(Joi.valid(0), Joi.number().integer().min(50).max(100)).default(D.similarityPercent),
+  excludedNumbers: Joi.array().items(Joi.string().trim().max(40)).max(MAX_EXCLUDED_NUMBERS).default([]),
   fallbackMessage: Joi.string().max(MAX_REPLY_LENGTH).allow('').default(''),
   // Penanda di akhir setiap balasan otomatis; '' = dimatikan.
   signature: Joi.string().max(MAX_SIGNATURE_LENGTH).allow('').default(D.signature),

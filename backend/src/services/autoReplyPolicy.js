@@ -11,6 +11,9 @@
 // Di luar mode: aturan ber-triggerType MISSED_CALL membalas panggilan yang tidak
 // terangkat pada semua mode selain OFF (lihat pickCallReply).
 
+import { normalizePhone } from '../utils/phone.js';
+import { findMostSimilar } from './textSimilarity.js';
+
 export const AUTO_REPLY_MODES = ['OFF', 'KEYWORD', 'AWAY', 'WEBHOOK'];
 export const AUTO_REPLY_TIMEZONES = ['Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura']; // WIB, WITA, WIT
 export const MAX_REPLY_LENGTH = 4096;
@@ -18,6 +21,7 @@ export const MAX_SIGNATURE_LENGTH = 500;
 // Batas jeda tunggu; harus jauh di bawah umur maksimal balasan di antrean (worker: 15 mnt).
 export const MAX_REPLY_DELAY_S = 600;
 // Penanda di akhir setiap balasan otomatis (format WhatsApp: _miring_, *tebal*).
+export const MAX_EXCLUDED_NUMBERS = 500;
 export const DEFAULT_SIGNATURE = '_Ini adalah Pesan dari System:_\n*WhatsApp Gateway Enterprise*';
 
 // Default = perilaku sebelum fitur ini ada (keyword + aturan global), kecuali
@@ -28,8 +32,12 @@ export const DEFAULT_AUTO_REPLY = Object.freeze({
   useGlobalRules: true, // ikut aturan "semua device" milik pemilik
   cooldownMinutes: 0, // jeda keyword yang sama per kontak (0 = selalu balas)
   noticeCooldownMinutes: 60, // jeda balasan default / di luar jam kerja per kontak
-  pauseAfterManualMinutes: 0, // diam setelah manusia membalas (0 = nonaktif)
+  pauseAfterManualMinutes: 30, // diam ke kontak yang sedang dibalas manusia (0 = nonaktif)
   replyDelaySeconds: 120, // tunggu dulu; batal bila manusia membalas dalam jeda ini (0 = langsung)
+  learnFromReplies: false, // balasan manual atas pesan tanpa aturan dijadikan aturan baru
+  learnAutoActivate: false, // aturan hasil belajar langsung aktif (false = menunggu ditinjau)
+  similarityPercent: 80, // kemiripan minimum pesan vs contoh pertanyaan aturan (0 = hanya keyword)
+  excludedNumbers: Object.freeze([]), // nomor / id grup yang tidak pernah dibalas otomatis
   fallbackMessage: '',
   awayMessage: '',
   signature: DEFAULT_SIGNATURE, // ditempel di akhir balasan otomatis ('' = tanpa penanda)
@@ -42,6 +50,25 @@ const intIn = (v, min, max, def) => {
   return Number.isInteger(n) && n >= min && n <= max ? n : def;
 };
 const str = (v) => (typeof v === 'string' ? v : '');
+
+// Daftar nomor dikecualikan: dinormalisasi (08xx → 628xx), unik, dibatasi jumlahnya.
+// Id grup (120363…) & LID ikut lewat normalizePhone apa adanya (hanya digit).
+export function normalizeNumbers(list) {
+  if (!Array.isArray(list)) return [];
+  const out = new Set();
+  for (const v of list) {
+    const n = normalizePhone(typeof v === 'string' || typeof v === 'number' ? String(v) : '');
+    if (n) out.add(n);
+    if (out.size >= MAX_EXCLUDED_NUMBERS) break;
+  }
+  return [...out];
+}
+
+// Apakah salah satu `parties` (nomor / LID / id grup) ada di daftar pengecualian?
+export function isExcluded(config, parties) {
+  const list = config.excludedNumbers || [];
+  return list.length > 0 && parties.some((p) => p && list.includes(String(p)));
+}
 
 // Lengkapi konfigurasi tersimpan dengan default; nilai tak valid diabaikan.
 export function normalizeAutoReply(raw) {
@@ -59,6 +86,10 @@ export function normalizeAutoReply(raw) {
     noticeCooldownMinutes: intIn(r.noticeCooldownMinutes, 1, 1440, d.noticeCooldownMinutes),
     pauseAfterManualMinutes: intIn(r.pauseAfterManualMinutes, 0, 1440, d.pauseAfterManualMinutes),
     replyDelaySeconds: intIn(r.replyDelaySeconds, 0, MAX_REPLY_DELAY_S, d.replyDelaySeconds),
+    learnFromReplies: typeof r.learnFromReplies === 'boolean' ? r.learnFromReplies : d.learnFromReplies,
+    learnAutoActivate: typeof r.learnAutoActivate === 'boolean' ? r.learnAutoActivate : d.learnAutoActivate,
+    similarityPercent: r.similarityPercent === 0 ? 0 : intIn(r.similarityPercent, 50, 100, d.similarityPercent),
+    excludedNumbers: normalizeNumbers(r.excludedNumbers),
     fallbackMessage: str(r.fallbackMessage),
     awayMessage: str(r.awayMessage),
     // Profil lama (belum punya field ini) ikut default; string kosong = sengaja dimatikan.
@@ -124,7 +155,12 @@ export function isMatch(rule, text) {
 export function pickReply({ config, rules = [], text, withinHours, webhookReply }) {
   switch (config.mode) {
     case 'KEYWORD': {
-      const matched = text ? rules.find((r) => isMatch(r, text)) : null;
+      let matched = text ? rules.find((r) => isMatch(r, text)) : null;
+      // Tak ada keyword yang cocok: cari aturan dengan contoh pertanyaan yang paling mirip.
+      if (!matched && text && config.similarityPercent > 0) {
+        const withSample = rules.filter((r) => r.sample && (r.template?.body || r.response));
+        matched = findMostSimilar(text, withSample, config.similarityPercent / 100)?.item || null;
+      }
       if (matched) {
         // Aturan cocok tanpa isi = pengecualian: tidak dibalas, balasan default pun tidak.
         const template = matched.template?.body || matched.response || '';
@@ -156,6 +192,29 @@ export function appendSignature(body, signature) {
   return `${body.trimEnd()}\n\n${sig}`.slice(0, MAX_REPLY_LENGTH);
 }
 
+// Belajar dari balasan manual: pesan masuk pendek (maks LEARN_MAX_WORDS kata) dijadikan
+// keyword REGEX per kata utuh, tanda baca & spasi bebas. 1–2 kata harus sama dengan
+// seluruh pesan (agar "ok" tidak cocok dengan "oke, besok saya ke sana"); 3 kata atau
+// lebih cukup terkandung di pesan. null = pesan tidak layak dijadikan keyword.
+export const LEARN_MAX_WORDS = 8;
+export function learnedKeyword(text) {
+  const words = String(text || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+  if (!words.length || words.length > LEARN_MAX_WORDS) return null;
+  if (words.join('').length < 2) return null;
+  const body = words.join('\\W+');
+  return words.length <= 2 ? `^\\W*${body}\\W*$` : `\\b${body}\\b`;
+}
+
+// Nama kontak di balasan manual diganti {{nama}} agar aturan hasil belajar
+// tidak menyapa kontak lain dengan nama orang pertama.
+export function personalizeReply(reply, pushName) {
+  const text = String(reply || '').trim().slice(0, MAX_REPLY_LENGTH);
+  const name = String(pushName || '').trim();
+  if (name.length < 3) return text;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(escaped, 'gi'), '{{nama}}');
+}
+
 // Tentukan balasan untuk panggilan tak terjawab. `rules` = aturan ber-triggerType
 // MISSED_CALL, sudah terurut prioritas. Berlaku di semua mode kecuali OFF, dan
 // memakai jeda "notice" agar penelepon berulang tidak dibalas berkali-kali.
@@ -169,6 +228,6 @@ export function pickCallReply({ config, rules = [] }) {
 }
 
 export default {
-  AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH, MAX_SIGNATURE_LENGTH, MAX_REPLY_DELAY_S, DEFAULT_SIGNATURE,
-  normalizeAutoReply, isWithinSchedule, isMatch, pickReply, pickCallReply, appendSignature,
+  AUTO_REPLY_MODES, AUTO_REPLY_TIMEZONES, DEFAULT_AUTO_REPLY, MAX_REPLY_LENGTH, MAX_EXCLUDED_NUMBERS, MAX_SIGNATURE_LENGTH, MAX_REPLY_DELAY_S, DEFAULT_SIGNATURE,
+  normalizeAutoReply, normalizeNumbers, isExcluded, isWithinSchedule, isMatch, pickReply, pickCallReply, appendSignature, learnedKeyword, personalizeReply,
 };

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, Search, Edit2, Trash2, Bot, PhoneMissed } from 'lucide-react'
+import { Plus, Search, Edit2, Trash2, Bot, PhoneMissed, Sparkles, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api, { msgOf } from '../lib/api'
 import PageHeader from '../components/PageHeader'
@@ -23,6 +23,7 @@ export default function Autoresponder() {
   const [meta, setMeta] = useState({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [learnedOnly, setLearnedOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState(null)
   const [confirm, setConfirm] = useState(null)
@@ -31,7 +32,7 @@ export default function Autoresponder() {
     setLoading(true)
     try {
       const res = await api.get('/autoresponders', {
-        params: { search: search || undefined, page, limit: 15 },
+        params: { search: search || undefined, learned: learnedOnly ? 1 : undefined, page, limit: 15 },
       })
       setRows(res.data?.data || [])
       setMeta(res.data?.meta || {})
@@ -40,7 +41,7 @@ export default function Autoresponder() {
     } finally {
       setLoading(false)
     }
-  }, [search, page])
+  }, [search, learnedOnly, page])
 
   useEffect(() => {
     const t = setTimeout(load, 250)
@@ -57,8 +58,33 @@ export default function Autoresponder() {
     }
   }
 
+  // Aturan hasil belajar dibuat nonaktif; aktifkan setelah isinya ditinjau.
+  const activate = async (r) => {
+    try {
+      await api.put(`/autoresponders/${r.id}`, { isActive: true })
+      toast.success('Aturan diaktifkan')
+      load()
+    } catch (e) {
+      toast.error(msgOf(e))
+    }
+  }
+
   const columns = [
-    { key: 'name', header: 'Name', render: (r) => <span className="font-medium text-slate-800">{r.name}</span> },
+    {
+      key: 'name',
+      header: 'Name',
+      render: (r) => (
+        <span className="font-medium text-slate-800">
+          {r.name}{' '}
+          {r.learned && (
+            <Badge tone="amber">
+              <Sparkles size={11} />
+              Dipelajari
+            </Badge>
+          )}
+        </span>
+      ),
+    },
     {
       key: 'keyword',
       header: 'Keyword',
@@ -93,6 +119,11 @@ export default function Autoresponder() {
       header: '',
       render: (r) => (
         <div className="flex justify-end gap-1">
+          {r.learned && !r.isActive && (
+            <button className="btn-ghost px-2 py-1 text-green-600 hover:bg-green-50" title="Aktifkan" onClick={() => activate(r)}>
+              <Check size={15} />
+            </button>
+          )}
           <button className="btn-ghost px-2 py-1" onClick={() => setEditing(r)}><Edit2 size={15} /></button>
           <button
             className="btn-ghost px-2 py-1 text-red-600 hover:bg-red-50"
@@ -117,8 +148,8 @@ export default function Autoresponder() {
         }
       />
 
-      <div className="mb-4 max-w-xs">
-        <div className="relative">
+      <div className="mb-4 flex flex-wrap items-center gap-4">
+        <div className="relative w-full max-w-xs">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             className="input pl-9"
@@ -127,6 +158,10 @@ export default function Autoresponder() {
             onChange={(e) => { setPage(1); setSearch(e.target.value) }}
           />
         </div>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" checked={learnedOnly} onChange={(e) => { setPage(1); setLearnedOnly(e.target.checked) }} />
+          Hanya hasil belajar
+        </label>
       </div>
 
       <DataTable
@@ -167,6 +202,7 @@ function AutoresponderModal({ item, onClose, onSaved }) {
       keyword: item.keyword || '',
       matchType: item.matchType || 'CONTAINS',
       response: item.response || '',
+      sample: item.sample || '',
       priority: item.priority ?? 0,
       isActive: item.isActive ?? true,
     })
@@ -190,6 +226,7 @@ function AutoresponderModal({ item, onClose, onSaved }) {
         keyword: call ? '' : form.keyword,
         matchType: form.matchType,
         response: form.response,
+        sample: call ? null : form.sample?.trim() || null,
         priority: Number(form.priority) || 0,
         isActive: !!form.isActive,
       }
@@ -267,6 +304,19 @@ function AutoresponderModal({ item, onClose, onSaved }) {
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="label">Contoh pertanyaan (opsional)</label>
+            <input
+              className="input"
+              placeholder="mis. harga paket berapa?"
+              value={form.sample || ''}
+              onChange={(e) => setForm({ ...form, sample: e.target.value })}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Bila tidak ada keyword yang cocok, pesan yang <b>mirip</b> dengan contoh ini ikut dijawab — beda susunan kata,
+              salah ketik, atau singkatan (brp, gmn, udh) tetap dikenali. Batas kemiripan diatur per device.
+            </p>
           </div>
         </div>
         <div>

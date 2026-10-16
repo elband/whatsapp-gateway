@@ -21,6 +21,8 @@ export const createSchema = {
     templateId: Joi.number().integer().optional().allow(null),
     isActive: Joi.boolean().optional(),
     priority: Joi.number().integer().optional(),
+    // Contoh pertanyaan: pesan yang mirip (bukan hanya cocok keyword) ikut dijawab.
+    sample: Joi.string().max(1000).allow('', null).optional(),
   }),
 };
 
@@ -35,6 +37,7 @@ export const updateSchema = {
     templateId: Joi.number().integer().optional().allow(null),
     isActive: Joi.boolean().optional(),
     priority: Joi.number().integer().optional(),
+    sample: Joi.string().max(1000).allow('', null).optional(),
   }),
 };
 

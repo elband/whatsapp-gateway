@@ -8,6 +8,7 @@ import { clusterEnabled } from '../../cluster/clusterConfig.js';
 import { assignShard } from '../../cluster/deviceRouter.js';
 import { ownerWhere, assertOwned } from '../../utils/ownerScope.js';
 import { dailyUsage } from '../../services/sendLimiter.js';
+import { normalizeNumbers } from '../../services/autoReplyPolicy.js';
 
 // Di mode cluster, aksi device dikirim ke WA-worker pemilik via command bus.
 // Lazy import agar mode 'all' tidak membuka koneksi Redis tambahan.
@@ -99,7 +100,8 @@ export async function update(id, data, user) {
       webhookUrl: data.webhookUrl,
       webhookEvents: data.webhookEvents,
       autoReconnect: data.autoReconnect,
-      autoReply: data.autoReply,
+      // Nomor dikecualikan disimpan ternormalisasi (08xx → 628xx) agar tampil apa adanya di UI.
+      autoReply: data.autoReply && { ...data.autoReply, excludedNumbers: normalizeNumbers(data.autoReply.excludedNumbers) },
       quota: data.quota,
       quotaUsed: data.quotaUsed,
       // reassign kepemilikan hanya boleh oleh super admin
