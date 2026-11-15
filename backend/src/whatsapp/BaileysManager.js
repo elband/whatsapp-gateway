@@ -292,6 +292,7 @@ class BaileysManager {
         groupJid: isGroup ? remoteJid : undefined,
         lid: isLid ? fromJid(remoteJid) : undefined,
         webhookResult,
+        readKey: { remoteJid: msg.key.remoteJid, id: msg.key.id, participant: msg.key.participant || undefined },
       }).catch((e) => logger.warn({ e: e.message }, 'Autoreply gagal'));
       rememberIncoming({
         device,
@@ -380,6 +381,18 @@ class BaileysManager {
       await sock.sendPresenceUpdate('paused', jid);
     } catch {
       /* abaikan */
+    }
+  }
+
+  // Tandai pesan masuk sudah dibaca (centang biru) sebelum auto-balas, seperti orang yang
+  // membuka chat dulu baru mengetik. Kegagalan tidak menggagalkan kirim.
+  async markRead(devicePk, key) {
+    const sock = this.sockets.get(devicePk);
+    if (!sock?.user || !key?.remoteJid || !key?.id) return;
+    try {
+      await sock.readMessages([{ remoteJid: key.remoteJid, id: key.id, participant: key.participant || undefined, fromMe: false }]);
+    } catch (err) {
+      logger.debug({ err: err.message, devicePk }, 'Tandai dibaca gagal');
     }
   }
 

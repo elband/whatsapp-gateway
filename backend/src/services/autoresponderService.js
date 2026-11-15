@@ -47,7 +47,8 @@ export async function repliedManuallySince(deviceId, parties, sinceMs) {
 
 // Dipanggil dari BaileysManager saat ada pesan masuk.
 // `webhookResult`: promise respons webhook message.incoming (dipakai mode WEBHOOK).
-export async function runAutoreply({ device, fromPhone, text, pushName, isGroup = false, groupJid, lid, webhookResult }) {
+// `readKey`: kunci pesan masuk — worker menandainya dibaca (centang biru) tepat sebelum "sedang mengetik…".
+export async function runAutoreply({ device, fromPhone, text, pushName, isGroup = false, groupJid, lid, webhookResult, readKey }) {
   const config = normalizeAutoReply(device.autoReply);
   if (config.mode === 'OFF') return;
   if (isGroup && !config.replyInGroups) return;
@@ -97,7 +98,10 @@ export async function runAutoreply({ device, fromPhone, text, pushName, isGroup 
     body,
     delaySeconds: config.replyDelaySeconds,
     manualParties: [party, lid].filter(Boolean),
-    meta: isGroup ? { groupJid } : lidOnly ? { lidJid: `${lid}@lid` } : {},
+    meta: {
+      ...(isGroup ? { groupJid } : lidOnly ? { lidJid: `${lid}@lid` } : {}),
+      ...(readKey?.remoteJid && readKey?.id ? { readKey } : {}),
+    },
   });
 }
 

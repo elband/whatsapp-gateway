@@ -132,6 +132,11 @@ async function processSingle(job, token) {
   await prisma.message.update({ where: { id: messageId }, data: { status: 'SENDING' } });
 
   try {
+    // Auto-balas: pesan masuk ditandai dibaca dulu, jeda sebentar "membaca", baru mengetik.
+    if (isAutoreply && message.meta?.readKey) {
+      await baileysManager.markRead(message.deviceId, message.meta.readKey);
+      await new Promise((r) => setTimeout(r, rand(800, 2000)));
+    }
     await baileysManager.simulateTyping(message.deviceId, targetJid, typingMs, { recording: message.type === 'AUDIO' });
     const sent = await baileysManager.sendMessage(message.deviceId, targetJid, content);
     const updated = await prisma.message.update({
