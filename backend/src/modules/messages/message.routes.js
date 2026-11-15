@@ -82,6 +82,16 @@ router.post('/send-list', requireScope('message.send'), enforceApiKeyDevice, ide
  */
 router.post('/check', requireScope('message.read'), enforceApiKeyDevice, validate(checkNumbersSchema), ctrl.checkNumbers);
 
+/**
+ * @openapi
+ * /messages/groups:
+ *   post:
+ *     tags: [Messages]
+ *     summary: Daftar grup WhatsApp yang diikuti device (id grup dipakai sebagai `to` saat kirim)
+ *     security: [{ bearerAuth: [] }, { apiKey: [] }]
+ */
+router.post('/groups', requireScope('message.send'), enforceApiKeyDevice, ctrl.listGroups);
+
 router.get('/', ctrl.list);
 router.get('/:id', ctrl.get);
 router.post('/:id/resend', ctrl.resend);

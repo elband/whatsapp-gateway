@@ -383,6 +383,16 @@ class BaileysManager {
     }
   }
 
+  // Grup yang diikuti device: [{ id: '…@g.us', nama, peserta }], urut nama.
+  async listGroups(devicePk) {
+    const sock = this.sockets.get(devicePk);
+    if (!sock?.user) throw new Error('Device tidak terhubung');
+    const grup = await sock.groupFetchAllParticipating();
+    return Object.values(grup)
+      .map((g) => ({ id: g.id, nama: g.subject || g.id, peserta: Array.isArray(g.participants) ? g.participants.length : null }))
+      .sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+  }
+
   // Cek apakah nomor terdaftar di WhatsApp.
   async checkNumber(devicePk, jid) {
     const sock = this.sockets.get(devicePk);

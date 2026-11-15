@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizePhone, toJid, fromJid } from '../src/utils/phone.js';
+import { normalizePhone, toJid, fromJid, isGroupJid } from '../src/utils/phone.js';
 
 describe('phone util', () => {
   it('normalisasi 08xx -> 628xx', () => {
@@ -30,5 +30,13 @@ describe('phone util', () => {
     expect(normalizePhone('811522204')).toBe('62811522204');
     // toJid juga tidak menggandakan
     expect(toJid('62811522204')).toBe('62811522204@s.whatsapp.net');
+  });
+  it('isGroupJid mengenali JID grup, bukan nomor', () => {
+    expect(isGroupJid('120363012345678901@g.us')).toBe(true);
+    expect(isGroupJid('6281234567890-1612345678@g.us')).toBe(true);
+    expect(isGroupJid('628123456789@s.whatsapp.net')).toBe(false);
+    expect(isGroupJid('08123456789')).toBe(false);
+    expect(isGroupJid('abc@g.us')).toBe(false);
+    expect(isGroupJid(null)).toBe(false);
   });
 });

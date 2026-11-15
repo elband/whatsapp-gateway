@@ -24,6 +24,11 @@ export function normalizePhone(input, defaultCountry = 'ID') {
   return digits; // fallback: tetap kembalikan digit (sudah tanpa dobel kode negara)
 }
 
+// JID grup WhatsApp, mis. "120363012345678901@g.us" atau format lama "6281234567890-1612345678@g.us".
+export function isGroupJid(input) {
+  return typeof input === 'string' && /^\d{5,25}(-\d{5,15})?@g\.us$/.test(input.trim());
+}
+
 // Ubah nomor menjadi JID WhatsApp.
 export function toJid(input) {
   const phone = normalizePhone(input);

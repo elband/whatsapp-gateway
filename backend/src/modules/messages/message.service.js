@@ -2,7 +2,7 @@ import path from 'node:path';
 import { prisma } from '../../config/prisma.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { enqueueSingle } from '../../queue/index.js';
-import { normalizePhone, toJid } from '../../utils/phone.js';
+import { normalizePhone, toJid, isGroupJid } from '../../utils/phone.js';
 import { uploadRoot } from '../../middlewares/upload.js';
 import { baileysManager } from '../../whatsapp/BaileysManager.js';
 import { parseSort } from '../../utils/listQuery.js';
@@ -37,7 +37,8 @@ async function resolveDevice(deviceId, apiKey, user) {
 // kind (disimpan di meta.kind): 'otp' | 'chat' | undefined — menentukan aturan
 // anti-ban yang berlaku (lihat services/sendPolicy.js). Tidak pernah dari input klien.
 async function queueOutbound({ device, to, type, body, caption, attachment, meta, apiKeyId, kind }) {
-  const phone = normalizePhone(to);
+  // Tujuan boleh JID grup (…@g.us) — disimpan apa adanya, device harus anggota grup itu.
+  const phone = isGroupJid(to) ? String(to).trim() : normalizePhone(to);
   if (!phone) throw ApiError.badRequest(`Nomor tidak valid: ${to}`);
 
   // Tier harian penerima unik device (ala tier Meta). OTP & balasan inbox dikecualikan.
@@ -134,6 +135,15 @@ export async function sendList({ deviceId, to, body, footer, title, buttonText, 
     device, to, type: 'LIST', body, apiKeyId,
     meta: { list: { text: body, footer, title, buttonText, sections } },
   });
+}
+
+// Daftar grup WhatsApp yang diikuti device — supaya aplikasi bisa memilih grup tujuan (`to` = id grup).
+export async function listGroups({ deviceId, apiKey, user }) {
+  const device = await resolveDevice(deviceId, apiKey, user);
+  if (!clusterEnabled && !baileysManager.isConnected(device.id)) {
+    throw ApiError.badRequest('Device tidak terhubung');
+  }
+  return clusterEnabled ? cmd(device.id, 'listGroups') : baileysManager.listGroups(device.id);
 }
 
 // Cek satu/banyak nomor apakah terdaftar di WhatsApp.

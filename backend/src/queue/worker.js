@@ -7,7 +7,7 @@ import { prisma } from '../config/prisma.js';
 import { logger } from '../config/logger.js';
 import { baileysManager } from '../whatsapp/BaileysManager.js';
 import { buildContent, renderTemplate } from '../services/messageBuilder.js';
-import { toJid } from '../utils/phone.js';
+import { toJid, isGroupJid } from '../utils/phone.js';
 import * as socket from '../realtime/emit.js';
 import { dispatchWebhook } from '../services/webhookService.js';
 import { uploadRoot } from '../middlewares/upload.js';
@@ -89,7 +89,10 @@ async function processSingle(job, token) {
   // memakai meta.lidJid — alamat LID tidak bisa dicek lewat onWhatsApp, jadi dikirim langsung.
   const groupJid = isAutoreply ? message.meta?.groupJid : null;
   const lidJid = isAutoreply ? message.meta?.lidJid : null;
-  const jid = groupJid && String(groupJid).endsWith('@g.us')
+  // Pesan API ke grup: `to` sudah berupa JID grup (lihat queueOutbound).
+  const jid = isGroupJid(message.to)
+    ? message.to.trim()
+    : groupJid && String(groupJid).endsWith('@g.us')
     ? groupJid
     : lidJid && String(lidJid).endsWith('@lid')
       ? lidJid

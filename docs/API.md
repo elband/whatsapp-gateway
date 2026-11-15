@@ -67,6 +67,7 @@ Format respons konsisten:
 | Method | Path | Body |
 |--------|------|------|
 | POST | `/messages/check` | `{ deviceId?, numbers: ["08123...","0852..."] }` → `data: [{ input, phone, exists, jid?, error? }]` |
+| POST | `/messages/groups` | `{ deviceId? }` → `data: [{ id: "…@g.us", nama, peserta }]` — grup yang diikuti device (scope `message.send`). Kirim ke grup: `/messages/send` dengan `to` = `id` grup |
 
 > Device harus berstatus `CONNECTED`.
 

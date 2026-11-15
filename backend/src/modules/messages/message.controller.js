@@ -30,6 +30,10 @@ export const sendList = catchAsync(async (req, res) =>
   created(res, await service.sendList({ ...req.body, ...ctx(req) }), 'Pesan list dimasukkan ke antrean'),
 );
 
+export const listGroups = catchAsync(async (req, res) =>
+  ok(res, await service.listGroups({ ...req.body, ...ctx(req) }), 'Daftar grup device'),
+);
+
 export const checkNumbers = catchAsync(async (req, res) =>
   ok(res, await service.checkNumbers({ ...req.body, ...ctx(req) }), 'Hasil pengecekan nomor'),
 );

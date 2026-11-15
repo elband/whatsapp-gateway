@@ -60,6 +60,8 @@ async function main() {
         const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { status: true, qr: true } });
         return { status: dev?.status, qr: dev?.qr };
       }
+      case 'listGroups':
+        return baileysManager.listGroups(deviceId);
       case 'checkNumber':
         return baileysManager.checkNumber(deviceId, payload.jid);
       case 'connected':
